@@ -1,6 +1,7 @@
 """Scenario data models."""
 
 import re
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -234,6 +235,45 @@ class Scenario(BaseModel):
     )
 
 
+class StepTrace(BaseModel):
+    """What happened in one step of a run."""
+
+    index: int = Field(ge=0, description="Position of the step in the scenario (0-based)")
+    action: ActionType = Field(description="Action performed")
+    started_sec: float = Field(ge=0, description="Seconds since the run started")
+    duration_sec: float = Field(default=0.0, ge=0, description="How long the step took")
+    sent: str | None = Field(
+        default=None,
+        description="Message text sent, or file name for a document",
+    )
+    replies: list[str] = Field(
+        default_factory=list,
+        description="Text of every bot reply the step received",
+    )
+    passed: bool = Field(default=False, description="Whether the step passed")
+    error: str | None = Field(default=None, description="Why the step failed")
+
+
+class ExecutionTrace(BaseModel):
+    """
+    Step-by-step record of one scenario run, saved as trace.json.
+
+    One entry per step that started. If the scenario timed out, the last entry
+    is the step that was still running when time ran out.
+    """
+
+    scenario_id: str = Field(description="Scenario that was executed")
+    started_at: datetime = Field(description="Wall-clock start of the run (UTC)")
+    duration_sec: float = Field(ge=0, description="Total run duration")
+    passed: bool = Field(description="Whether the scenario passed")
+    error: str | None = Field(default=None, description="Scenario-level error, if any")
+    steps: list[StepTrace] = Field(default_factory=list, description="Steps in order")
+    captures: dict[str, str] = Field(
+        default_factory=dict,
+        description="Replies kept under a capture name, e.g. 'interpretation'",
+    )
+
+
 class ScenarioResult(BaseModel):
     """Result of scenario execution."""
 
@@ -261,4 +301,10 @@ class ScenarioResult(BaseModel):
     logs: list[str] = Field(
         default_factory=list,
         description="Log messages from execution",
+    )
+
+    # Step-by-step record of the run
+    trace: ExecutionTrace | None = Field(
+        default=None,
+        description="Step-by-step record of the run",
     )

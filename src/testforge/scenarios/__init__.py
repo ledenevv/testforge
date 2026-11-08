@@ -8,17 +8,21 @@ from testforge.scenarios.loader import (
 )
 from testforge.scenarios.models import (
     ActionType,
+    ExecutionTrace,
     ExpectCondition,
     Scenario,
     ScenarioResult,
     Step,
+    StepTrace,
     ValidationSpec,
 )
 
 __all__ = [
     "ActionType",
+    "ExecutionTrace",
     "ExpectCondition",
     "Step",
+    "StepTrace",
     "Scenario",
     "ScenarioResult",
     "ValidationSpec",

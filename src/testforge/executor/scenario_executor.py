@@ -2,11 +2,21 @@
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from testforge.executor.validators import ValidationError, validate_expect
-from testforge.scenarios.models import ActionType, Scenario, ScenarioResult, Step
+from testforge.scenarios.models import (
+    ActionType,
+    ExecutionTrace,
+    ExpectCondition,
+    Scenario,
+    ScenarioResult,
+    Step,
+    StepTrace,
+)
+from testforge.telegram.models import TelegramUpdate
 from testforge.telegram.protocol import TelegramBot
 
 
@@ -18,19 +28,26 @@ class ExecutionError(Exception):
 
 @dataclass
 class _Progress:
-    """Mutable step counters, shared so a timeout can still report what ran."""
+    """Mutable run state, shared so a timeout can still report what ran."""
 
     executed: int = 0
     passed: int = 0
     failed: int = 0
     error: str | None = None
     first_failed_index: int | None = None
+    steps: list[StepTrace] = field(default_factory=list)
+    captures: dict[str, str] = field(default_factory=dict)
+    current: StepTrace | None = None
 
     def record_failure(self, index: int, message: str) -> None:
         """Remember the first failure only."""
         if self.first_failed_index is None:
             self.first_failed_index = index
             self.error = message
+
+
+def _reply_texts(updates: list[TelegramUpdate]) -> list[str]:
+    return [update.message.text for update in updates if update.message and update.message.text]
 
 
 class ScenarioExecutor:
@@ -53,12 +70,17 @@ class ScenarioExecutor:
         self.verbose = verbose
         self.logs: list[str] = []
         self.screenshots: list[str] = []
+        self._run_started = 0.0
 
     def _log(self, message: str) -> None:
         """Log a message."""
         self.logs.append(message)
         if self.verbose:
             print(f"[Executor] {message}")
+
+    def _elapsed(self) -> float:
+        """Seconds since the current run started."""
+        return time.perf_counter() - self._run_started
 
     async def run(self, scenario: Scenario) -> ScenarioResult:
         """
@@ -69,6 +91,8 @@ class ScenarioExecutor:
 
         A scenario passes only if every step passed; a failed non-critical step
         lets the remaining steps run but still fails the scenario.
+
+        The result carries an ExecutionTrace with one entry per step that started.
 
         Args:
             scenario: Scenario to execute
@@ -81,7 +105,8 @@ class ScenarioExecutor:
         self.screenshots = []
 
         self._log(f"Starting scenario: {scenario.id}")
-        start_time = time.perf_counter()
+        started_at = datetime.now(timezone.utc)
+        self._run_started = time.perf_counter()
         progress = _Progress()
 
         try:
@@ -91,18 +116,30 @@ class ScenarioExecutor:
             )
         except asyncio.TimeoutError:
             # The step that was in flight never finished: count it as failed
-            progress.failed += 1
             message = f"Scenario timed out after {scenario.timeout_sec}s"
+            progress.failed += 1
             if progress.first_failed_index is None:
                 progress.first_failed_index = progress.executed
             progress.error = message
+            if progress.current is not None:
+                self._finish_step(progress, scenario.steps[progress.current.index], message)
             self._log(f"✗ {message}")
 
         passed = progress.failed == 0
-        duration = time.perf_counter() - start_time
+        duration = self._elapsed()
         self._log(
             f"Scenario finished: {'PASSED' if passed else 'FAILED'} "
             f"({progress.passed}/{progress.executed} steps passed, {duration:.2f}s)"
+        )
+
+        trace = ExecutionTrace(
+            scenario_id=scenario.id,
+            started_at=started_at,
+            duration_sec=duration,
+            passed=passed,
+            error=progress.error,
+            steps=progress.steps,
+            captures=progress.captures,
         )
 
         return ScenarioResult(
@@ -116,6 +153,7 @@ class ScenarioExecutor:
             failed_step_index=progress.first_failed_index,
             logs=list(self.logs),
             screenshots=list(self.screenshots),
+            trace=trace,
         )
 
     async def _run_steps(self, scenario: Scenario, progress: _Progress) -> None:
@@ -123,53 +161,70 @@ class ScenarioExecutor:
         for idx, step in enumerate(scenario.steps):
             self._log(f"Step {idx + 1}/{len(scenario.steps)}: {step.action.value}")
 
+            record = StepTrace(index=idx, action=step.action, started_sec=self._elapsed(), passed=False)
+            progress.steps.append(record)
+            progress.current = record
+
+            error: str | None = None
             try:
-                await self._execute_step(step, scenario)
+                await self._execute_step(step, record)
             except Exception as e:
                 # Any step error (including bot/network errors) is a step failure,
                 # not a crash that loses the rest of the result.
-                detail = (
+                error = (
                     str(e)
                     if isinstance(e, (ValidationError, ExecutionError))
                     else f"{type(e).__name__}: {e}"
                 )
-                progress.executed += 1
-                progress.failed += 1
-                progress.record_failure(idx, detail)
 
-                if step.critical:
-                    self._log(f"  ✗ Step {idx + 1} FAILED (critical): {detail}")
-                    return
-                self._log(f"  ⚠ Step {idx + 1} FAILED (non-critical): {detail}")
-            else:
-                progress.executed += 1
+            self._finish_step(progress, step, error)
+            progress.executed += 1
+
+            if error is None:
                 progress.passed += 1
                 self._log(f"  ✓ Step {idx + 1} passed")
+                continue
 
-    async def _execute_step(self, step: Step, scenario: Scenario) -> None:
+            progress.failed += 1
+            progress.record_failure(idx, error)
+            if step.critical:
+                self._log(f"  ✗ Step {idx + 1} FAILED (critical): {error}")
+                return
+            self._log(f"  ⚠ Step {idx + 1} FAILED (non-critical): {error}")
+
+    def _finish_step(self, progress: _Progress, step: Step, error: str | None) -> None:
+        """Close the step in flight: record its outcome, duration and captured replies."""
+        record = progress.current
+        record.duration_sec = self._elapsed() - record.started_sec
+        record.passed = error is None
+        record.error = error
+        if step.capture:
+            progress.captures[step.capture] = "\n".join(record.replies)
+        progress.current = None
+
+    async def _execute_step(self, step: Step, record: StepTrace) -> None:
         """
         Execute a single step.
 
         Args:
             step: Step to execute
-            scenario: Parent scenario (for context)
+            record: Trace entry for this step, filled in while it runs
 
         Raises:
             ExecutionError: If step execution fails
             ValidationError: If expect condition not met
         """
-        # Execute action based on type
         if step.action == ActionType.SEND_MESSAGE:
-            await self._handle_send_message(step)
+            await self._handle_send_message(step, record)
 
         elif step.action == ActionType.SEND_DOCUMENT:
-            await self._handle_send_document(step)
+            await self._handle_send_document(step, record)
 
         elif step.action == ActionType.WAIT:
             await self._handle_wait(step)
 
         elif step.action == ActionType.EXPECT_RESPONSE:
-            await self._handle_expect_response(step)
+            await self._handle_expect_response(step, record)
 
         elif step.action == ActionType.VERIFY_STATE:
             await self._handle_verify_state(step)
@@ -177,7 +232,7 @@ class ScenarioExecutor:
         else:
             raise ExecutionError(f"Unknown action type: {step.action}")
 
-    async def _handle_send_message(self, step: Step) -> None:
+    async def _handle_send_message(self, step: Step, record: StepTrace) -> None:
         """
         Handle send_message action.
 
@@ -187,25 +242,14 @@ class ScenarioExecutor:
             raise ExecutionError("send_message requires 'text' field")
 
         self._log(f"  → Sending message: {step.text}")
+        record.sent = step.text
 
-        # Send message to bot
         await self.bot.send_message(step.text)
 
-        # Check expectations if specified
         if step.expect:
-            # Wait for delay if specified
-            if step.expect.delay_sec:
-                await asyncio.sleep(step.expect.delay_sec)
+            await self._check_replies(step.expect, record)
 
-            # Get bot responses
-            updates = await self.bot.get_updates()
-
-            self._log(f"  ← Received {len(updates)} response(s)")
-
-            # Validate responses
-            validate_expect(step.expect, updates)
-
-    async def _handle_send_document(self, step: Step) -> None:
+    async def _handle_send_document(self, step: Step, record: StepTrace) -> None:
         """
         Handle send_document action.
 
@@ -216,23 +260,12 @@ class ScenarioExecutor:
 
         doc_path = Path(step.document_path)
         self._log(f"  → Sending document: {doc_path.name}")
+        record.sent = doc_path.name
 
-        # Send document to bot
         await self.bot.send_document(doc_path, caption=step.caption)
 
-        # Check expectations if specified
         if step.expect:
-            # Wait for delay if specified
-            if step.expect.delay_sec:
-                await asyncio.sleep(step.expect.delay_sec)
-
-            # Get bot responses
-            updates = await self.bot.get_updates()
-
-            self._log(f"  ← Received {len(updates)} response(s)")
-
-            # Validate responses
-            validate_expect(step.expect, updates)
+            await self._check_replies(step.expect, record)
 
     async def _handle_wait(self, step: Step) -> None:
         """
@@ -246,7 +279,7 @@ class ScenarioExecutor:
         self._log(f"  ⏳ Waiting {step.duration_sec}s...")
         await asyncio.sleep(step.duration_sec)
 
-    async def _handle_expect_response(self, step: Step) -> None:
+    async def _handle_expect_response(self, step: Step, record: StepTrace) -> None:
         """
         Handle expect_response action.
 
@@ -255,17 +288,18 @@ class ScenarioExecutor:
         if not step.expect:
             raise ExecutionError("expect_response requires 'expect' field")
 
-        # Wait for delay if specified
-        if step.expect.delay_sec:
-            await asyncio.sleep(step.expect.delay_sec)
+        await self._check_replies(step.expect, record)
 
-        # Get bot responses
+    async def _check_replies(self, expect: ExpectCondition, record: StepTrace) -> None:
+        """Wait for the bot, keep every reply on the trace, then validate them."""
+        if expect.delay_sec:
+            await asyncio.sleep(expect.delay_sec)
+
         updates = await self.bot.get_updates()
+        record.replies.extend(_reply_texts(updates))
 
-        self._log(f"  ← Checking {len(updates)} response(s)")
-
-        # Validate responses
-        validate_expect(step.expect, updates)
+        self._log(f"  ← Received {len(updates)} response(s)")
+        validate_expect(expect, updates)
 
     async def _handle_verify_state(self, step: Step) -> None:
         """
