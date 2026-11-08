@@ -18,8 +18,8 @@ def init(
     ] = "testforge.yaml",
 ) -> None:
     """Scaffold a new config file."""
-    typer.echo(f"🏗️  Initializing config: {config}")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M2)")
+    typer.echo(f"[*] Initializing config: {config}")
+    typer.echo("[!] Command not implemented yet (Phase 0: M2)")
 
 
 @app.command()
@@ -30,8 +30,8 @@ def config_validate(
     ],
 ) -> None:
     """Validate config YAML."""
-    typer.echo(f"🔍 Validating config: {config}")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M2)")
+    typer.echo(f"[*] Validating config: {config}")
+    typer.echo("[!] Command not implemented yet (Phase 0: M2)")
 
 
 @app.command()
@@ -42,8 +42,8 @@ def plan(
     ] = "fixtures/scenarios/*.yml",
 ) -> None:
     """Load and validate test scenarios."""
-    typer.echo(f"📋 Loading scenarios: {scenarios}")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M5)")
+    typer.echo(f"[*] Loading scenarios: {scenarios}")
+    typer.echo("[!] Command not implemented yet (Phase 0: M5)")
 
 
 @app.command()
@@ -58,8 +58,8 @@ def run(
     ] = "mock",
 ) -> None:
     """Execute test scenario(s)."""
-    typer.echo(f"🚀 Running scenario: {scenario} (mode: {mode})")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M6)")
+    typer.echo(f"[*] Running scenario: {scenario} (mode: {mode})")
+    typer.echo("[!] Command not implemented yet (Phase 0: M6)")
 
 
 @app.command()
@@ -75,8 +75,8 @@ def verify(
 ) -> None:
     """Validate run results."""
     judge_str = "with LLM-judge" if llm_judge else "without LLM-judge"
-    typer.echo(f"✅ Verifying run: {run_id} ({judge_str})")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M7, M9)")
+    typer.echo(f"[*] Verifying run: {run_id} ({judge_str})")
+    typer.echo("[!] Command not implemented yet (Phase 0: M7, M9)")
 
 
 @app.command()
@@ -91,15 +91,15 @@ def report(
     ] = "html",
 ) -> None:
     """Generate test report."""
-    typer.echo(f"📊 Generating {format} report for run: {run_id}")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M11)")
+    typer.echo(f"[*] Generating {format} report for run: {run_id}")
+    typer.echo("[!] Command not implemented yet (Phase 0: M11)")
 
 
 @app.command()
 def baseline_reset() -> None:
     """Clear baseline and re-establish on next run."""
-    typer.echo("🔄 Resetting baseline...")
-    typer.echo("⚠️  Command not implemented yet (Phase 0: M10)")
+    typer.echo("[*] Resetting baseline...")
+    typer.echo("[!] Command not implemented yet (Phase 0: M10)")
 
 
 @app.callback()
