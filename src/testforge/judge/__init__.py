@@ -1,10 +1,11 @@
 """LLM-as-Judge evaluation system."""
 
-from testforge.judge.llm_judge import LLMJudge
-from testforge.judge.models import JudgeVerdict, JudgeCriteria
+from testforge.judge.llm_judge import JudgeEvaluationError, LLMJudge
+from testforge.judge.models import JudgeCriteria, JudgeVerdict
 
 __all__ = [
-    "LLMJudge",
-    "JudgeVerdict",
     "JudgeCriteria",
+    "JudgeEvaluationError",
+    "JudgeVerdict",
+    "LLMJudge",
 ]
