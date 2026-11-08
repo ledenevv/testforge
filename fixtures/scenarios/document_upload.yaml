@@ -1,0 +1,38 @@
+scenario:
+  id: document_upload
+  description: Upload lab report and receive interpretation
+  tags:
+    - document
+    - analysis
+    - core
+  mode: mock
+
+  variables:
+    test_doc_path: "fixtures/test_data/sample_lab_report.pdf"
+
+  steps:
+    - action: send_document
+      description: Upload lab report PDF
+      document_path: "{{ test_doc_path }}"
+      caption: "Мои анализы крови"
+      expect:
+        contains: "Документ получен"
+        delay_sec: 0.5
+
+    - action: wait
+      description: Wait for bot to process document
+      duration_sec: 1.5
+
+    - action: expect_response
+      description: Verify interpretation was generated
+      expect:
+        contains: "Резюме"
+        response_count: 1
+
+    - action: expect_response
+      description: Verify interpretation contains key sections
+      expect:
+        contains: "норма"
+
+  timeout_sec: 60
+  retry_on_failure: false

@@ -1,0 +1,21 @@
+scenario:
+  id: env_var_test
+  description: Test environment variable substitution in scenarios
+  tags:
+    - test
+    - env
+  mode: mock
+
+  variables:
+    test_user_name: "${TEST_USER_NAME}"
+    test_message: "Hello from ${TEST_ENV}"
+
+  steps:
+    - action: send_message
+      description: Send message with env var substitution
+      text: "/start"
+      expect:
+        contains: "бот"
+
+  timeout_sec: 10
+  retry_on_failure: false

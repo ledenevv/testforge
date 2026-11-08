@@ -1,0 +1,31 @@
+scenario:
+  id: smoke_test
+  description: Basic smoke test - verify bot responds to common commands
+  tags:
+    - smoke
+    - quick
+  mode: mock
+
+  steps:
+    - action: send_message
+      description: Test /start command
+      text: "/start"
+      expect:
+        contains: "Привет"
+        response_count: 1
+
+    - action: send_message
+      description: Test /help command
+      text: "/help"
+      expect:
+        contains: "Справка"
+
+    - action: send_message
+      description: Test unknown command fallback
+      text: "/unknown_command_xyz"
+      expect:
+        contains: "не понял"
+      critical: false
+
+  timeout_sec: 15
+  retry_on_failure: false

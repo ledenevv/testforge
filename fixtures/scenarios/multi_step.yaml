@@ -1,0 +1,82 @@
+scenario:
+  id: multi_step
+  description: Multi-step workflow - onboarding, profile, document upload
+  tags:
+    - regression
+    - e2e
+    - full-flow
+  mode: mock
+
+  variables:
+    user_sex: "f"
+    user_year: "1990"
+    user_height: "165"
+    user_weight: "60"
+
+  steps:
+    # Step 1: Start bot
+    - action: send_message
+      description: Send /start command
+      text: "/start"
+      expect:
+        contains: "Этот бот"
+
+    # Step 2: Give consent
+    - action: send_message
+      description: Send /consent to proceed
+      text: "/consent"
+      expect:
+        contains: "пол"
+
+    # Step 3-7: Complete profile
+    - action: send_message
+      text: "{{ user_sex }}"
+      expect:
+        contains: "год"
+
+    - action: send_message
+      text: "{{ user_year }}"
+      expect:
+        contains: "рост"
+
+    - action: send_message
+      text: "{{ user_height }}"
+      expect:
+        contains: "вес"
+
+    - action: send_message
+      text: "{{ user_weight }}"
+      expect:
+        contains: "заболевания"
+
+    - action: send_message
+      text: "Нет"
+      expect:
+        contains: "сохранён"
+
+    # Step 8: Request help
+    - action: send_message
+      description: Check /help works after profile setup
+      text: "/help"
+      expect:
+        contains: "Справка"
+
+    # Step 9: Upload document
+    - action: send_document
+      description: Upload test document
+      document_path: "fixtures/test_data/sample_lab_report.pdf"
+      expect:
+        contains: "получен"
+
+    # Step 10: Wait for processing
+    - action: wait
+      duration_sec: 2.0
+
+    # Step 11: Verify interpretation
+    - action: expect_response
+      expect:
+        contains: "Резюме"
+
+  timeout_sec: 90
+  retry_on_failure: false
+  max_retries: 1

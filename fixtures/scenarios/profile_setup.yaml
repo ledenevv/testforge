@@ -1,0 +1,49 @@
+scenario:
+  id: profile_setup
+  description: Complete user profile setup flow
+  tags:
+    - smoke
+    - profile
+    - onboarding
+  mode: mock
+
+  steps:
+    - action: send_message
+      description: Send /consent to start profile setup
+      text: "/consent"
+      expect:
+        contains: "пол"
+        response_count: 1
+
+    - action: send_message
+      description: Provide sex
+      text: "m"
+      expect:
+        contains: "год"
+
+    - action: send_message
+      description: Provide birth year
+      text: "1985"
+      expect:
+        contains: "рост"
+
+    - action: send_message
+      description: Provide height in cm
+      text: "180"
+      expect:
+        contains: "вес"
+
+    - action: send_message
+      description: Provide weight in kg
+      text: "75"
+      expect:
+        contains: "заболевания"
+
+    - action: send_message
+      description: Provide chronic conditions (none)
+      text: "нет"
+      expect:
+        contains: "сохранён"
+
+  timeout_sec: 30
+  retry_on_failure: false
