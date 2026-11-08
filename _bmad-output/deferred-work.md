@@ -44,6 +44,13 @@
 
 Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own LLM calls (not observable through the Telegram Bot API, and ask-toby must not be changed). Only TestForge's own spend (the judge) is tracked. Revisit at a late stage: before the first `real`-mode run and when building the M11 reports. Estimating bot cost would need a source on the ask-toby side (a log or a command).
 
+## Open items from M9b-3
+
+- **ask-toby access.** The forbidden-phrase list should come from the ask-toby `medical-disclaimer` skill. `LedenevS/ask-toby` returned 404 for both the GitHub API and the web page, so the plan's list is used. Re-check when access exists and compare the lists.
+- **Judge not wired.** A scenario that asks for `llm_judge` gets a `warn` until M9b-4.
+- **interpretation.schema** is accepted but not checked. No schema registry yet.
+- **Compliance on mixed replies.** A step that reads several replies at once (for example, upload confirmation plus interpretation) captures all of them, so the compliance and schema checks see the confirmation too. Keep the interpretation in its own step in M9b-5 scenarios.
+
 ## Plan divergence found in review (M5-M7, M9) - accepted into M9b
 
 Decision: add milestone M9b before M10. Plan, decisions and acceptance criteria: `m9b-plan-conformance.md`. Rows below are closed as M9b items complete.
@@ -58,11 +65,11 @@ Review of Chunks 3 and 4 against `TESTFORGE_EXECUTION_PLAN.md` found that M5-M7 
 | M5 five scenarios: onboarding, single_upload, batch_upload, conversation_qa, measurement | Not authored; fixtures are smoke_test, profile_setup, document_upload, multi_step, env_var_test |
 | M6 `ExecutionTrace` (messages, responses, timings, cost per step) | M9b-2 done: per-step messages, replies, timings, pass/error. Cost per step not measured for the bot (owner decision) |
 | M6 trace saved to `/runs/<id>/trace.json` | M9b-2 done: `RunStore` writes `runs/run-…/trace.json` and `latest.txt` |
-| M7 schema validation (extract structured data, validate against expectations YAML) | Absent |
-| M7 compliance (disclaimer regex, forbidden phrases, Cyrillic > 80%) | Absent |
-| M7 cost verification (actual vs budget) | Absent |
-| M7 performance verification (latency vs budget, per-stage) | Only `verify_duration_within` on total duration |
-| M7 findings saved to `/runs/<id>/verification.json` | Absent |
+| M7 schema validation (extract structured data, validate against expectations YAML) | M9b-3 done: required sections from expectations. No structured-data extraction: the interpretation is Markdown text |
+| M7 compliance (disclaimer regex, forbidden phrases, Cyrillic > 80%) | M9b-3 done. Forbidden list taken from the plan (ask-toby skill unreachable, see below) |
+| M7 cost verification (actual vs budget) | M9b-3 done: TestForge's spend against the budgets. Bot pipeline cost not measured (owner decision) |
+| M7 performance verification (latency vs budget, per-stage) | M9b-3 done: total against budget, per-step breakdown. Per-stage limits listed as unverified |
+| M7 findings saved to `/runs/<id>/verification.json` | M9b-3 done: `verification.json` in the run folder |
 | CLI `testforge plan` / `run` / `verify` | Absent (M11) |
 | M9 rubric YAML (`fixtures/rubrics/interpretation_quality_v1.yml`) and loader | Absent; `JudgeCriteria` is five booleans |
 | M9 dimensions clarity / medical_appropriateness / russian_grammar / disclaimer_compliance with weights 0.25 / 0.40 / 0.20 / 0.15 | Built instead: correctness, helpfulness, safety, language_quality, relevance, unweighted mean |

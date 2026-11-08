@@ -104,6 +104,10 @@ class RunStore:
         text = (run_dir / TRACE_FILE).read_text(encoding="utf-8")
         return ExecutionTrace.model_validate_json(text)
 
+    def load_cost(self, run_dir: Path) -> CostReport:
+        text = (run_dir / COST_FILE).read_text(encoding="utf-8")
+        return CostReport.model_validate_json(text)
+
     def save_cost(self, run_dir: Path, report: CostReport) -> Path:
         path = run_dir / COST_FILE
         path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
