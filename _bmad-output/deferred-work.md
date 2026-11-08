@@ -40,6 +40,10 @@
 - Trailing whitespace in `judge/models.py` and `tests/unit/test_judge.py`.
 - Not reproduced and not changed: a claim that the float mean can land just under the threshold. An exhaustive check of 0.1-step and half-point scores for the five-criterion mean found no affected case.
 
+## REMINDER for the owner: bot pipeline cost is not measured
+
+Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own LLM calls (not observable through the Telegram Bot API, and ask-toby must not be changed). Only TestForge's own spend (the judge) is tracked. Revisit at a late stage: before the first `real`-mode run and when building the M11 reports. Estimating bot cost would need a source on the ask-toby side (a log or a command).
+
 ## Plan divergence found in review (M5-M7, M9) - accepted into M9b
 
 Decision: add milestone M9b before M10. Plan, decisions and acceptance criteria: `m9b-plan-conformance.md`. Rows below are closed as M9b items complete.

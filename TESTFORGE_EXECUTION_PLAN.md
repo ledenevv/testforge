@@ -29,6 +29,8 @@
 
 ## 2. Budget Allocation ($0.25-0.40 per CI run)
 
+> **Примечание после код-ревью:** стоимость LLM-вызовов самого бота ask-toby (строки «bot pipeline» ниже) не проверяется: через Bot API она не видна. Учитываются только траты TestForge (судья). К вопросу вернуться на поздних этапах. См. `_bmad-output/m9b-plan-conformance.md`.
+
 ### 2.1 Cost Breakdown per Scenario
 
 **Scenario 1: Onboarding + Single Document Upload**
