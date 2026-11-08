@@ -1,0 +1,28 @@
+# TestForge Configuration - Mock Mode
+# For development without staging bot
+
+mode: mock  # In-memory bot with canned responses
+
+bot:
+  name: "ask-toby (mock)"
+  token: "${TESTFORGE_BOT_TOKEN}"  # Not used in mock mode, but required
+  test_user_id: 12345678  # Dummy ID for mock mode
+
+llm:
+  provider: anthropic
+  api_key: "${TESTFORGE_LLM_API_KEY}"
+  model: claude-sonnet-4
+  temperature: 0.3
+  max_tokens: 4096
+  timeout_sec: 30
+  retries: 3
+
+cost_limits:
+  per_scenario_max_usd: 0.20
+  per_run_max_usd: 0.50
+  alert_threshold_usd: 0.40
+
+scenarios_dir: fixtures/scenarios
+fixtures_dir: fixtures/documents
+expectations_dir: fixtures/expectations
+baseline_file: runs/baseline.yml

@@ -1,7 +1,12 @@
 """TestForge CLI - Main entry point."""
 
+import sys
+from pathlib import Path
+
 import typer
 from typing_extensions import Annotated
+
+from testforge.config import ForgeConfig, load_config, save_config
 
 app = typer.Typer(
     name="testforge",
@@ -16,10 +21,45 @@ def init(
         str,
         typer.Option("--config", "-c", help="Path to save config file"),
     ] = "testforge.yaml",
+    template: Annotated[
+        str,
+        typer.Option("--template", "-t", help="Template: mock or staging"),
+    ] = "mock",
 ) -> None:
-    """Scaffold a new config file."""
-    typer.echo(f"[*] Initializing config: {config}")
-    typer.echo("[!] Command not implemented yet (Phase 0: M2)")
+    """Scaffold a new config file from template."""
+    config_path = Path(config)
+    
+    # Check if file exists
+    if config_path.exists():
+        overwrite = typer.confirm(
+            f"Config file {config} already exists. Overwrite?",
+            default=False,
+        )
+        if not overwrite:
+            typer.echo("[!] Aborted.")
+            raise typer.Exit(1)
+    
+    # Determine template source
+    if template == "mock":
+        template_path = Path(__file__).parent.parent.parent / "config" / "examples" / "mock-bot.yaml"
+    elif template == "staging":
+        template_path = Path(__file__).parent.parent.parent / "config" / "examples" / "staging-bot.yaml"
+    else:
+        typer.echo(f"[!] Unknown template: {template}. Use 'mock' or 'staging'.")
+        raise typer.Exit(1)
+    
+    if not template_path.exists():
+        typer.echo(f"[!] Template not found: {template_path}")
+        raise typer.Exit(1)
+    
+    # Copy template
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    import shutil
+    shutil.copy(template_path, config_path)
+    
+    typer.echo(f"[*] Created config: {config} (from template: {template})")
+    typer.echo(f"[*] Edit the file and set environment variables in .env")
+    typer.echo(f"[*] Validate with: testforge config-validate {config}")
 
 
 @app.command()
@@ -31,7 +71,23 @@ def config_validate(
 ) -> None:
     """Validate config YAML."""
     typer.echo(f"[*] Validating config: {config}")
-    typer.echo("[!] Command not implemented yet (Phase 0: M2)")
+    
+    try:
+        cfg = load_config(config)
+        typer.echo("[+] Configuration valid!")
+        typer.echo(f"    Mode: {cfg.mode}")
+        typer.echo(f"    Bot: {cfg.bot.name}")
+        typer.echo(f"    LLM Provider: {cfg.llm.provider} ({cfg.llm.model})")
+        typer.echo(f"    Cost Limits: ${cfg.cost_limits.per_scenario_max_usd}/scenario, ${cfg.cost_limits.per_run_max_usd}/run")
+    except FileNotFoundError as e:
+        typer.echo(f"[!] Error: {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        typer.echo(f"[!] Validation failed: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"[!] Unexpected error: {e}")
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -1,0 +1,28 @@
+# TestForge Configuration - Real Bot (Staging)
+# For E2E testing against deployed ask-toby staging bot
+
+mode: real  # Test against real Telegram Bot API
+
+bot:
+  name: "ask-toby (staging)"
+  token: "${TESTFORGE_BOT_TOKEN}"  # Set in .env: TESTFORGE_BOT_TOKEN=...
+  test_user_id: ${TESTFORGE_TEST_USER_ID}  # Your Telegram user ID
+
+llm:
+  provider: anthropic
+  api_key: "${TESTFORGE_LLM_API_KEY}"  # Set in .env
+  model: claude-sonnet-4
+  temperature: 0.3
+  max_tokens: 4096
+  timeout_sec: 30
+  retries: 3
+
+cost_limits:
+  per_scenario_max_usd: 0.20
+  per_run_max_usd: 0.50
+  alert_threshold_usd: 0.40
+
+scenarios_dir: fixtures/scenarios
+fixtures_dir: fixtures/documents
+expectations_dir: fixtures/expectations
+baseline_file: runs/baseline.yml
