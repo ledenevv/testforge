@@ -51,8 +51,8 @@ class MockProvider(LLMProvider):
         timeout_sec: int | None = None,
     ) -> LLMResponse:
         """Return canned response based on prompt."""
-        if not prompt:
-            raise ValueError("Prompt cannot be empty")
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt cannot be empty or whitespace-only")
 
         self.call_count += 1
 

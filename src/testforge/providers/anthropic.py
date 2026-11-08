@@ -3,7 +3,13 @@
 import asyncio
 from typing import Any
 
-from anthropic import AsyncAnthropic
+try:
+    from anthropic import AsyncAnthropic
+except ImportError as e:
+    raise ImportError(
+        "The 'anthropic' package is required for AnthropicProvider. "
+        "Install it with: pip install anthropic"
+    ) from e
 
 from testforge.config import LLMConfig
 from testforge.providers.base import LLMProvider, LLMResponse
@@ -46,8 +52,8 @@ class AnthropicProvider(LLMProvider):
         timeout_sec: int | None = None,
     ) -> LLMResponse:
         """Generate completion with Claude."""
-        if not prompt:
-            raise ValueError("Prompt cannot be empty")
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt cannot be empty or whitespace-only")
 
         max_tokens = max_tokens or self.config.max_tokens
         temperature = temperature if temperature is not None else self.config.temperature
@@ -68,8 +74,18 @@ class AnthropicProvider(LLMProvider):
                         timeout=timeout_sec,
                     )
 
-                # Extract text from response
-                text = response.content[0].text if response.content else ""
+                # Extract text from response (find first text block)
+                text = ""
+                if response.content:
+                    for block in response.content:
+                        if hasattr(block, 'text'):
+                            text = block.text
+                            break
+                    if not text:
+                        raise RuntimeError(
+                            "No text content in Anthropic response. "
+                            f"Response contained {len(response.content)} non-text blocks."
+                        )
 
                 # Count tokens (from API response)
                 tokens_in = response.usage.input_tokens
@@ -97,7 +113,7 @@ class AnthropicProvider(LLMProvider):
                     f"Request timed out after {timeout_sec}s (attempt {attempt + 1}/{retries + 1})"
                 )
                 if attempt < retries:
-                    await asyncio.sleep(2**attempt)  # Exponential backoff
+                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff, capped at 30s
                 continue
 
             except Exception as e:
@@ -105,7 +121,7 @@ class AnthropicProvider(LLMProvider):
                     f"Anthropic API error (attempt {attempt + 1}/{retries + 1}): {e}"
                 )
                 if attempt < retries:
-                    await asyncio.sleep(2**attempt)  # Exponential backoff
+                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff, capped at 30s
                 continue
 
         # All retries failed
@@ -124,18 +140,22 @@ class AnthropicProvider(LLMProvider):
 
     def calculate_cost(self, tokens_in: int, tokens_out: int) -> float:
         """Calculate cost based on Anthropic pricing."""
-        # Try to get pricing for specific model
         model_name = self.config.model.lower()
-        pricing = None
-
-        # Match model name to pricing tier
-        for model_key in self.PRICING:
-            if model_key in model_name:
-                pricing = self.PRICING[model_key]
-                break
-
+        
+        # Try exact match first
+        pricing = self.PRICING.get(model_name)
+        
+        # If no exact match, try substring matching (ordered by specificity)
         if not pricing:
-            pricing = self.PRICING["default"]
+            # Order matters: check most specific first
+            if "opus" in model_name:
+                pricing = self.PRICING["claude-opus-4"]
+            elif "sonnet" in model_name:
+                pricing = self.PRICING["claude-sonnet-4"]
+            elif "haiku" in model_name:
+                pricing = self.PRICING["claude-haiku-4"]
+            else:
+                pricing = self.PRICING["default"]
 
         # Calculate cost (pricing is per 1M tokens)
         cost_in = (tokens_in / 1_000_000) * pricing["input"]

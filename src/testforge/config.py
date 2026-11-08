@@ -30,10 +30,15 @@ class CostLimits(BaseModel):
 
     @model_validator(mode="after")
     def validate_thresholds(self) -> "CostLimits":
-        """Validate that alert threshold is less than max."""
+        """Validate budget logic consistency."""
         if self.alert_threshold_usd >= self.per_run_max_usd:
             raise ValueError(
                 f"alert_threshold_usd ({self.alert_threshold_usd}) must be less than "
+                f"per_run_max_usd ({self.per_run_max_usd})"
+            )
+        if self.per_scenario_max_usd > self.per_run_max_usd:
+            raise ValueError(
+                f"per_scenario_max_usd ({self.per_scenario_max_usd}) cannot exceed "
                 f"per_run_max_usd ({self.per_run_max_usd})"
             )
         return self
@@ -50,9 +55,18 @@ class BotTarget(BaseModel):
     @classmethod
     def validate_token(cls, v: str) -> str:
         """Validate bot token format (basic check)."""
-        if not v or v == "${TESTFORGE_BOT_TOKEN}":
-            # Env var not substituted yet, or mock mode
+        # Allow env var placeholders (will be validated after substitution)
+        if v.startswith("${"):
             return v
+        
+        # Allow empty string (will be caught by real mode validator if needed)
+        if not v:
+            return v
+        
+        # Check for whitespace-only (actual mistake)
+        if not v.strip():
+            raise ValueError("Bot token cannot be whitespace-only")
+        
         # Basic format: 1234567890:ABCdef...
         if not re.match(r"^\d+:[A-Za-z0-9_-]+$", v):
             raise ValueError(
@@ -97,16 +111,31 @@ class LLMConfig(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str, info) -> str:
-        """Validate API key is not empty (unless mock mode)."""
+        """Validate API key format (provider-specific)."""
         provider = info.data.get("provider")
         if provider == "mock":
             return v  # Mock mode doesn't need real API key
-        if not v or v.startswith("${"):
+        
+        # Check for whitespace-only or empty
+        if not v or not v.strip():
+            raise ValueError("API key cannot be empty or whitespace-only")
+        
+        if v.startswith("${"):
             # Env var not substituted yet
             return v
-        # Basic validation: should be non-empty
+        
+        # Provider-specific validation (prefix only for flexibility in tests)
+        if provider == "anthropic":
+            if not v.startswith("sk-ant-"):
+                raise ValueError("Anthropic API key should start with 'sk-ant-'")
+        elif provider == "openai":
+            if not v.startswith("sk-"):
+                raise ValueError("OpenAI API key should start with 'sk-'")
+        
+        # Generic length check (lenient for test keys)
         if len(v) < 10:
             raise ValueError(f"API key seems too short for {provider} provider")
+        
         return v
 
 
@@ -149,6 +178,22 @@ class ForgeConfig(BaseModel):
                     "Real mode requires TESTFORGE_BOT_TOKEN environment variable to be set"
                 )
         return self
+    
+    @model_validator(mode="after")
+    def validate_directory_paths(self) -> "ForgeConfig":
+        """Warn if configured directories don't exist."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        for attr in ["scenarios_dir", "fixtures_dir", "expectations_dir"]:
+            path_str = getattr(self, attr)
+            path = Path(path_str)
+            if not path.exists():
+                logger.warning(
+                    f"Configuration: {attr} does not exist: {path_str}. "
+                    "This may cause runtime errors when loading fixtures."
+                )
+        return self
 
 
 def substitute_env_vars(data: dict[str, Any]) -> dict[str, Any]:
@@ -160,8 +205,8 @@ def substitute_env_vars(data: dict[str, Any]) -> dict[str, Any]:
 
     def substitute(value: Any) -> Any:
         if isinstance(value, str):
-            # Find all ${VAR_NAME} patterns
-            pattern = r"\$\{([A-Z_][A-Z0-9_]*)\}"
+            # Find all ${VAR_NAME} patterns (case-insensitive)
+            pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
             matches = re.findall(pattern, value)
             for var_name in matches:
                 env_value = os.getenv(var_name, "")

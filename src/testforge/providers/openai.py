@@ -3,7 +3,13 @@
 import asyncio
 from typing import Any
 
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except ImportError as e:
+    raise ImportError(
+        "The 'openai' package is required for OpenAIProvider. "
+        "Install it with: pip install openai"
+    ) from e
 
 from testforge.config import LLMConfig
 from testforge.providers.base import LLMProvider, LLMResponse
@@ -46,8 +52,8 @@ class OpenAIProvider(LLMProvider):
         timeout_sec: int | None = None,
     ) -> LLMResponse:
         """Generate completion with GPT."""
-        if not prompt:
-            raise ValueError("Prompt cannot be empty")
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt cannot be empty or whitespace-only")
 
         max_tokens = max_tokens or self.config.max_tokens
         temperature = temperature if temperature is not None else self.config.temperature
@@ -68,7 +74,12 @@ class OpenAIProvider(LLMProvider):
                         timeout=timeout_sec,
                     )
 
-                # Extract text
+                # Extract text from choices
+                if not response.choices:
+                    raise RuntimeError(
+                        "OpenAI returned empty choices array. "
+                        "This may indicate content filtering or API issue."
+                    )
                 text = response.choices[0].message.content or ""
 
                 # Count tokens
@@ -97,7 +108,7 @@ class OpenAIProvider(LLMProvider):
                     f"Request timed out after {timeout_sec}s (attempt {attempt + 1}/{retries + 1})"
                 )
                 if attempt < retries:
-                    await asyncio.sleep(2**attempt)
+                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff, capped at 30s
                 continue
 
             except Exception as e:
@@ -105,7 +116,7 @@ class OpenAIProvider(LLMProvider):
                     f"OpenAI API error (attempt {attempt + 1}/{retries + 1}): {e}"
                 )
                 if attempt < retries:
-                    await asyncio.sleep(2**attempt)
+                    await asyncio.sleep(min(2**attempt, 30))  # Exponential backoff, capped at 30s
                 continue
 
         raise last_error or RuntimeError("All retries failed")
@@ -125,18 +136,21 @@ class OpenAIProvider(LLMProvider):
     def calculate_cost(self, tokens_in: int, tokens_out: int) -> float:
         """Calculate cost based on OpenAI pricing."""
         model_name = self.config.model.lower()
-        pricing = None
-
-        # Try exact matches first, then partial matches
-        # Order matters: check more specific models first
-        if "gpt-4-turbo" in model_name or "gpt-4o" in model_name:
-            pricing = self.PRICING["gpt-4-turbo"]
-        elif "gpt-4" in model_name:
-            pricing = self.PRICING["gpt-4"]
-        elif "gpt-3.5" in model_name:
-            pricing = self.PRICING["gpt-3.5-turbo"]
-        else:
-            pricing = self.PRICING["default"]
+        
+        # Try exact match first
+        pricing = self.PRICING.get(model_name)
+        
+        # If no exact match, try substring matching (ordered by specificity)
+        if not pricing:
+            # Check most specific first to avoid substring collisions
+            if "gpt-4-turbo" in model_name or "gpt-4o" in model_name:
+                pricing = self.PRICING["gpt-4-turbo"]
+            elif "gpt-4" in model_name:
+                pricing = self.PRICING["gpt-4"]
+            elif "gpt-3.5" in model_name:
+                pricing = self.PRICING["gpt-3.5-turbo"]
+            else:
+                pricing = self.PRICING["default"]
 
         cost_in = (tokens_in / 1_000_000) * pricing["input"]
         cost_out = (tokens_out / 1_000_000) * pricing["output"]

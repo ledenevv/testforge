@@ -156,6 +156,25 @@ class TestMockProvider:
         with pytest.raises(ValueError, match="Expected 'mock'"):
             MockProvider(config)
 
+    @pytest.mark.asyncio
+    async def test_case_insensitive_matching(self):
+        """Prompt matching should be case-insensitive."""
+        config = LLMConfig(provider="mock", api_key="", model="test")
+        provider = MockProvider(config)
+        
+        # Add response with lowercase key
+        provider.add_response("hello world", "Matched!")
+        
+        # Test various case variations
+        response1 = await provider.complete("hello world")  # Exact
+        assert response1.text == "Matched!"
+        
+        response2 = await provider.complete("HELLO WORLD")  # Uppercase
+        assert response2.text == "Matched!"
+        
+        response3 = await provider.complete("Hello World")  # Title case
+        assert response3.text == "Matched!"
+
 
 class TestAnthropicProvider:
     """Test AnthropicProvider."""
@@ -237,6 +256,26 @@ class TestAnthropicProvider:
         cost = provider.calculate_cost(1_000_000, 1_000_000)
         assert abs(cost - 18.0) < 0.01
 
+    @pytest.mark.asyncio
+    async def test_empty_prompt_rejected(self, config):
+        """Empty or whitespace-only prompts should be rejected."""
+        provider = AnthropicProvider(config)
+        
+        # Empty string
+        with pytest.raises(ValueError, match="empty or whitespace"):
+            await provider.complete("")
+        
+        # Whitespace-only
+        with pytest.raises(ValueError, match="empty or whitespace"):
+            await provider.complete("   ")
+
+    # TODO: Add comprehensive retry/timeout tests
+    # - Mock API to fail N times, verify retry count
+    # - Verify exponential backoff timing (2^attempt, capped at 30s)
+    # - Verify hung requests timeout after timeout_sec
+    # - Verify final error is raised after exhausting retries
+    # These tests require monkeypatching asyncio.sleep and mocking the Anthropic client
+
 
 class TestOpenAIProvider:
     """Test OpenAIProvider."""
@@ -301,6 +340,26 @@ class TestOpenAIProvider:
         # GPT-3.5: $0.5/1M input, $1.5/1M output
         cost = provider.calculate_cost(1_000_000, 1_000_000)
         assert abs(cost - 2.0) < 0.01  # $0.5 + $1.5 = $2
+
+    @pytest.mark.asyncio
+    async def test_empty_prompt_rejected(self, config):
+        """Empty or whitespace-only prompts should be rejected."""
+        provider = OpenAIProvider(config)
+        
+        # Empty string
+        with pytest.raises(ValueError, match="empty or whitespace"):
+            await provider.complete("")
+        
+        # Whitespace-only
+        with pytest.raises(ValueError, match="empty or whitespace"):
+            await provider.complete("   ")
+
+    # TODO: Add comprehensive retry/timeout tests
+    # - Mock API to fail N times, verify retry count
+    # - Verify exponential backoff timing (2^attempt, capped at 30s)
+    # - Verify hung requests timeout after timeout_sec
+    # - Verify final error is raised after exhausting retries
+    # These tests require monkeypatching asyncio.sleep and mocking the OpenAI client
 
 
 # Integration tests with real APIs are in tests/integration/
