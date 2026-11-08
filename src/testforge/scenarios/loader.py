@@ -150,9 +150,12 @@ def load_scenario(path: str | Path, variables: dict[str, Any] | None = None) -> 
     return scenario
 
 
+SCENARIO_PATTERNS = ("*.yml", "*.yaml")
+
+
 def load_scenarios_from_directory(
     directory: str | Path,
-    pattern: str = "*.yaml",
+    pattern: str | None = None,
     variables: dict[str, Any] | None = None,
 ) -> list[Scenario]:
     """
@@ -160,7 +163,7 @@ def load_scenarios_from_directory(
 
     Args:
         directory: Directory containing scenario files
-        pattern: Glob pattern for scenario files (default: *.yaml)
+        pattern: Glob pattern for scenario files. Defaults to both *.yml and *.yaml.
         variables: Optional variables for template rendering
 
     Returns:
@@ -180,7 +183,10 @@ def load_scenarios_from_directory(
     scenarios = []
     errors = []
 
-    for scenario_file in sorted(directory.glob(pattern)):
+    patterns = [pattern] if pattern else list(SCENARIO_PATTERNS)
+    scenario_files = sorted({f for p in patterns for f in directory.glob(p)})
+
+    for scenario_file in scenario_files:
         try:
             scenario = load_scenario(scenario_file, variables=variables)
             scenarios.append(scenario)
@@ -199,3 +205,35 @@ def load_scenarios_from_directory(
         seen.add(scenario.id)
 
     return scenarios
+
+
+def validate_scenario_files(scenario: Scenario, base_dir: str | Path | None = None) -> list[str]:
+    """
+    Check that the files a scenario refers to exist.
+
+    Checked: every step's document_path and validation.expectations. Relative
+    paths are resolved against base_dir. The default is the current directory,
+    which is also where the executor opens documents, so the check and the run
+    look at the same files.
+
+    Loading does not run this check; call it separately before a run.
+
+    Args:
+        scenario: Scenario to check
+        base_dir: Directory that relative paths are resolved against
+
+    Returns:
+        One message per missing file. An empty list means everything is present.
+    """
+    root = Path(base_dir) if base_dir is not None else Path.cwd()
+    problems: list[str] = []
+
+    for index, step in enumerate(scenario.steps, start=1):
+        if step.document_path and not (root / step.document_path).is_file():
+            problems.append(f"step {index}: document not found: {step.document_path}")
+
+    expectations = scenario.validation.expectations
+    if expectations and not (root / expectations).is_file():
+        problems.append(f"validation.expectations not found: {expectations}")
+
+    return problems

@@ -23,7 +23,7 @@
 - `Scenario.retry_on_failure` / `max_retries` are parsed but not applied by the executor (descriptions now say "Reserved").
 - `Scenario.mode` is informational; the executor runs against whichever bot it is given. Bot selection belongs to the CLI (M11).
 - Per-action required fields (`send_message` needs `text`, `wait` needs `duration_sec > 0`) are enforced only when the step runs, not when the scenario loads.
-- `load_scenarios_from_directory` defaults to `*.yaml` and skips `.yml`; the plan's examples use `.yml`. Settle the extension when the CLI is built.
+- ~~`load_scenarios_from_directory` defaults to `*.yaml` and skips `.yml`~~ Resolved in M9b-1: the directory loader reads both `.yml` and `.yaml`.
 - The "delay, get_updates, log, validate" sequence is repeated in three step handlers.
 - `verify_conversation_flow` inspects only messages the test user sent, not bot replies. Checking replies requires the executor to record them (see ExecutionTrace below).
 - `TelegramMessage` has no `caption`, so a bot reply that is only a caption cannot be validated.
@@ -52,9 +52,9 @@ Review of Chunks 3 and 4 against `TESTFORGE_EXECUTION_PLAN.md` found that M5-M7 
 
 | Plan item | State |
 |-----------|-------|
-| M5 `Scenario` fields `title`, `validation`, `cost_budget`, `performance_budget` | Absent (`description`, `timeout_sec`, `tags`, `variables`, `mode` exist) |
+| M5 `Scenario` fields `title`, `validation`, `cost_budget`, `performance_budget` | M9b-1 done: `title`, `priority`, `validation` with `cost_budget_usd` and `performance_budget_sec` (both > 0) |
 | M5 step types `upload_document`, `wait_for_response`, `expect_pattern` | Implemented as `send_document`, `wait`, `expect_response` (+ `verify_state`, unimplemented) |
-| M5 fixture-exists and budget > 0 validation | Absent |
+| M5 fixture-exists and budget > 0 validation | M9b-1 done: `validate_scenario_files` (checks `document_path` and `validation.expectations`); budgets must be > 0. Not yet called by a CLI: that is M11 `plan` |
 | M5 five scenarios: onboarding, single_upload, batch_upload, conversation_qa, measurement | Not authored; fixtures are smoke_test, profile_setup, document_upload, multi_step, env_var_test |
 | M6 `ExecutionTrace` (messages, responses, timings, cost per step) | Absent; `ScenarioResult` has counts and logs only |
 | M6 trace saved to `/runs/<id>/trace.json` | Absent; no `run_id`, nothing written to disk |

@@ -4,7 +4,9 @@ import re
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+Priority = Literal["P0", "P1", "P2"]
 
 
 class ActionType(str, Enum):
@@ -63,6 +65,39 @@ class ExpectCondition(BaseModel):
         return v
 
 
+class ValidationSpec(BaseModel):
+    """
+    Checks applied to a scenario's results after the run.
+
+    Unknown keys are rejected, so a misspelled check is never silently skipped.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expectations: str | None = Field(
+        default=None,
+        description="Path to the expectations YAML for this scenario's documents",
+    )
+    llm_judge: bool = Field(
+        default=False,
+        description="Score the bot's interpretation with the LLM judge",
+    )
+    compliance: bool = Field(
+        default=False,
+        description="Check the disclaimer and forbidden phrases",
+    )
+    cost_budget_usd: float | None = Field(
+        default=None,
+        gt=0,
+        description="Budget for TestForge's own LLM spend in this scenario (judge calls)",
+    )
+    performance_budget_sec: float | None = Field(
+        default=None,
+        gt=0,
+        description="Target for the total duration of the scenario",
+    )
+
+
 class Step(BaseModel):
     """Single step in a test scenario."""
 
@@ -105,6 +140,27 @@ class Step(BaseModel):
         ),
     )
 
+    # Keep the bot's replies from this step as the interpretation text
+    capture: Literal["interpretation"] | None = Field(
+        default=None,
+        description="Store the bot replies this step received under this name",
+    )
+
+    @model_validator(mode="after")
+    def capture_needs_bot_replies(self) -> "Step":
+        if self.capture is None:
+            return self
+        reads_replies = self.action == ActionType.EXPECT_RESPONSE or (
+            self.action in (ActionType.SEND_MESSAGE, ActionType.SEND_DOCUMENT)
+            and self.expect is not None
+        )
+        if not reads_replies:
+            raise ValueError(
+                "capture needs a step that reads bot replies: expect_response, "
+                "or send_message/send_document with 'expect'"
+            )
+        return self
+
 
 class Scenario(BaseModel):
     """Test scenario definition."""
@@ -117,9 +173,18 @@ class Scenario(BaseModel):
         pattern=r"^[a-z0-9_]+$",
         description="Unique scenario identifier (lowercase, underscores)",
     )
+    title: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Short human-readable title, shown in reports",
+    )
     description: str = Field(
         min_length=1,
         description="Human-readable scenario description",
+    )
+    priority: Priority = Field(
+        default="P1",
+        description="Importance: P0 is the most important, P2 the least",
     )
     tags: list[str] = Field(
         default_factory=list,
@@ -160,6 +225,12 @@ class Scenario(BaseModel):
     variables: dict[str, Any] = Field(
         default_factory=dict,
         description="Variables for Jinja2 template rendering",
+    )
+
+    # Checks run on the results after the scenario
+    validation: ValidationSpec = Field(
+        default_factory=ValidationSpec,
+        description="Checks applied to the results after the run",
     )
 
 
