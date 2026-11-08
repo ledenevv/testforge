@@ -1,17 +1,23 @@
-"""End to end: run the mock bot, save the run, verify it (M9b-3)."""
+"""End to end: run the mock bot, save the run, verify it, judge included (M9b-3, M9b-4)."""
 
 import json
+from pathlib import Path
 
 import pytest
 
+from testforge.config import LLMConfig
 from testforge.executor import ScenarioExecutor
+from testforge.providers import MockProvider
+from testforge.providers.base import LLMResponse
 from testforge.reporting import RunStore
 from testforge.scenarios import ActionType, ExpectCondition, Scenario, Step
 from testforge.telegram import MockTelegramBot
 from testforge.validation import RunVerifier
 
+RUBRICS = str(Path(__file__).resolve().parents[2] / "fixtures" / "rubrics")
 EXPECTATIONS = """\
 document_id: lab_report_001
+document_summary: "Биохимия крови, 2026-10-15: АЛТ 25 Ед/л, АСТ 22 Ед/л. Все значения в норме."
 interpretation:
   must_contain_sections:
     - "Резюме"
@@ -21,7 +27,37 @@ interpretation:
     - "назначаю"
 performance:
   total_e2e_max_sec: 120
+llm_judge:
+  rubric: interpretation_quality_v1
 """
+JUDGE_REPLY = json.dumps(
+    {
+        "clarity": {"score": 8.2, "reasoning": "Структурировано."},
+        "medical_appropriateness": {"score": 8.8, "reasoning": "Показатели верны."},
+        "russian_grammar": {"score": 8.0, "reasoning": "Грамматика верная."},
+        "disclaimer_compliance": {"score": 10.0, "reasoning": "Дисклеймер есть."},
+        "overall_assessment": "Разбор понятный и корректный.",
+    },
+    ensure_ascii=False,
+)
+
+
+class FixedCostJudge(MockProvider):
+    """Judge stand-in with a known cost, so the recorded spend can be checked exactly."""
+
+    def __init__(self):
+        super().__init__(LLMConfig(provider="mock", api_key="", model="judge-model"))
+
+    async def complete(self, prompt, **kwargs):
+        return LLMResponse(
+            text=JUDGE_REPLY,
+            tokens_in=5000,
+            tokens_out=800,
+            cost_usd=0.0230,
+            duration_sec=4.1,
+            model="judge-model",
+            provider="mock",
+        )
 
 
 @pytest.fixture
@@ -62,14 +98,19 @@ def _scenario(document, expectations, **validation):
 
 class TestMockRunVerification:
     @pytest.mark.asyncio
-    async def test_mock_interpretation_passes_every_check(self, tmp_path, document, expectations):
+    async def test_mock_interpretation_passes_every_check_including_the_judge(
+        self, tmp_path, document, expectations
+    ):
         bot = MockTelegramBot(responses_dir="fixtures/mock_responses")
-        scenario = _scenario(document, expectations)
-        result = await ScenarioExecutor(bot=bot).run(scenario)
+        scenario = _scenario(document, expectations, llm_judge=True)
         store = RunStore(tmp_path / "runs")
-        run_dir = store.save_run(result, now=None)
+        run_dir = store.save_run(await ScenarioExecutor(bot=bot).run(scenario))
 
-        verification = RunVerifier(store).verify(run_dir, scenario)
+        verification = await RunVerifier(
+            store,
+            provider=FixedCostJudge(),
+            rubrics_dir=RUBRICS,
+        ).verify(run_dir, scenario)
 
         statuses = {check.name: check.status for check in verification.checks}
         assert statuses == {
@@ -77,25 +118,32 @@ class TestMockRunVerification:
             "compliance": "pass",
             "cost": "pass",
             "performance": "pass",
-            "llm_judge": "skipped",
+            "llm_judge": "pass",
         }
         assert verification.status == "pass"
+        assert verification.judge.weighted_score == pytest.approx(8.67)
 
     @pytest.mark.asyncio
-    async def test_verification_json_is_saved_next_to_the_trace(
+    async def test_judge_spend_and_report_are_saved_with_the_run(
         self, tmp_path, document, expectations
     ):
         bot = MockTelegramBot(responses_dir="fixtures/mock_responses")
-        scenario = _scenario(document, expectations)
+        scenario = _scenario(document, expectations, llm_judge=True)
         store = RunStore(tmp_path / "runs")
         run_dir = store.save_run(await ScenarioExecutor(bot=bot).run(scenario))
-        verifier = RunVerifier(store)
 
-        path = verifier.write(run_dir, verifier.verify(run_dir, scenario))
+        await RunVerifier(store, provider=FixedCostJudge(), rubrics_dir=RUBRICS).verify(
+            run_dir, scenario
+        )
 
-        saved = json.loads(path.read_text(encoding="utf-8"))
+        cost = json.loads((run_dir / "cost.json").read_text(encoding="utf-8"))
+        assert cost["total_cost_usd"] == pytest.approx(0.0230)
+        assert cost["calls"][0]["tokens_in"] == 5000
+        assert cost["budget_used"] == pytest.approx(0.0230 / 0.20)
+        report = (run_dir / "judge_detailed.md").read_text(encoding="utf-8")
+        assert "**Overall: 8.67/10 — PASS (threshold 7.5)**" in report
+        saved = json.loads((run_dir / "verification.json").read_text(encoding="utf-8"))
         assert saved["status"] == "pass"
-        assert saved["scenario_id"] == "single_upload"
 
     @pytest.mark.asyncio
     async def test_section_the_bot_does_not_write_fails_the_run(self, tmp_path, document):
@@ -108,11 +156,10 @@ class TestMockRunVerification:
         )
         bot = MockTelegramBot(responses_dir="fixtures/mock_responses")
         scenario = _scenario(document, strict)
-        result = await ScenarioExecutor(bot=bot).run(scenario)
         store = RunStore(tmp_path / "runs")
-        run_dir = store.save_run(result)
+        run_dir = store.save_run(await ScenarioExecutor(bot=bot).run(scenario))
 
-        verification = RunVerifier(store).verify(run_dir, scenario)
+        verification = await RunVerifier(store).verify(run_dir, scenario)
 
         schema = next(check for check in verification.checks if check.name == "schema")
         assert schema.status == "fail"

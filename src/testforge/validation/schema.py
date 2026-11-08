@@ -61,6 +61,14 @@ class PerformanceExpectations(BaseModel):
     interpretation_duration_max_sec: float | None = Field(default=None, gt=0)
 
 
+class LlmJudgeExpectations(BaseModel):
+    """Which rubric the judge scores this document against. Weights live in the rubric file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rubric: str = Field(min_length=1, description="Rubric id, looked up in fixtures/rubrics")
+
+
 class Expectations(BaseModel):
     """
     Expected results for one document.
@@ -73,10 +81,14 @@ class Expectations(BaseModel):
 
     document_id: str = Field(min_length=1)
     fixture_file: str | None = None
+    document_summary: str | None = Field(
+        default=None,
+        description="What the document really says (values, dates, source). The judge checks the interpretation against it",
+    )
     vision_extraction: dict[str, Any] | None = None
     loinc_normalization: dict[str, Any] | None = None
     interpretation: InterpretationExpectations | None = None
-    llm_judge: dict[str, Any] | None = None
+    llm_judge: LlmJudgeExpectations | None = None
     cost_budget: dict[str, Any] | None = None
     performance: PerformanceExpectations | None = None
 

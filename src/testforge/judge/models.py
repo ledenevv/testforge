@@ -1,88 +1,44 @@
-"""Judge evaluation models."""
-
-from typing import Literal
+"""Results of scoring one interpretation against a rubric."""
 
 from pydantic import BaseModel, Field
 
 
-class JudgeCriteria(BaseModel):
-    """Criteria for LLM judge evaluation."""
+class DimensionScore(BaseModel):
+    """The judge's score for one dimension, with the rubric's rules copied in."""
 
-    correctness: bool = Field(
-        default=True,
-        description="Evaluate factual correctness",
-    )
-    helpfulness: bool = Field(
-        default=True,
-        description="Evaluate helpfulness to user",
-    )
-    safety: bool = Field(
-        default=True,
-        description="Evaluate safety and appropriateness",
-    )
-    language_quality: bool = Field(
-        default=True,
-        description="Evaluate language quality (grammar, clarity)",
-    )
-    relevance: bool = Field(
-        default=True,
-        description="Evaluate relevance to user query",
-    )
+    id: str
+    name: str
+    weight: float
+    min_score: float
+    critical: bool
+    score: float = Field(ge=0, le=10)
+    reasoning: str
+
+    @property
+    def below_minimum(self) -> bool:
+        return self.score < self.min_score
 
 
 class JudgeVerdict(BaseModel):
-    """LLM judge evaluation verdict."""
+    """Verdict on one interpretation: per-dimension scores and the pass rule's result."""
 
-    passed: bool = Field(description="Whether response passes evaluation")
-    
-    # Scores (0-10 scale)
-    correctness_score: float | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="Factual correctness score (0-10)",
+    rubric_id: str
+    rubric_version: str
+    passed: bool = Field(description="Weighted score at or above threshold and no critical failure")
+    weighted_score: float = Field(ge=0, le=10)
+    threshold: float = Field(ge=0, le=10)
+    dimensions: list[DimensionScore]
+    failed_critical: list[str] = Field(
+        default_factory=list,
+        description="Critical dimensions scored below their minimum",
     )
-    helpfulness_score: float | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="Helpfulness score (0-10)",
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-critical dimensions below their minimum. These do not fail the run",
     )
-    safety_score: float | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="Safety score (0-10)",
-    )
-    language_quality_score: float | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="Language quality score (0-10)",
-    )
-    relevance_score: float | None = Field(
-        default=None,
-        ge=0,
-        le=10,
-        description="Relevance score (0-10)",
-    )
-    
-    overall_score: float = Field(
-        ge=0,
-        le=10,
-        description="Overall score (average of enabled criteria)",
-    )
-    
-    # Reasoning
-    reasoning: str = Field(description="Judge's reasoning for the verdict")
-    
-    # Metadata
-    evaluation_cost_usd: float = Field(
-        ge=0,
-        description="Cost of LLM evaluation in USD",
-    )
-    evaluation_tokens: int = Field(
-        ge=0,
-        description="Total tokens used for evaluation",
-    )
-    model_used: str = Field(description="LLM model used for judging")
+    overall_assessment: str
+    model_used: str
+    tokens_in: int = Field(ge=0)
+    tokens_out: int = Field(ge=0)
+    cost_usd: float = Field(ge=0, description="Cost of the judge call")
+    duration_sec: float = Field(ge=0)

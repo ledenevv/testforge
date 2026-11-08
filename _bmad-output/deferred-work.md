@@ -35,9 +35,9 @@
 
 - No retry when the judge model returns malformed output; provider retries cover transport failures only. One bad reply fails that evaluation.
 - System and user prompts are concatenated into one string because `LLMProvider.complete` has no system-role parameter. Fixing it needs a provider API extension.
-- Judge temperature is hard-coded to 0.3.
-- `JudgeVerdict` keeps no raw model response and no threshold, so a verdict cannot be audited after the fact. This belongs with the detailed-report work below.
-- Trailing whitespace in `judge/models.py` and `tests/unit/test_judge.py`.
+- ~~Judge temperature is hard-coded to 0.3.~~ Resolved in M9b-4: a parameter, default 0.0.
+- The raw judge reply is not stored, so a verdict cannot be re-read word for word. Scores, reasoning, threshold and cost are kept in `verification.json` and `judge_detailed.md` (M9b-4).
+- ~~Trailing whitespace in `judge/models.py` and `tests/unit/test_judge.py`.~~ Both files rewritten in M9b-4.
 - Not reproduced and not changed: a claim that the float mean can land just under the threshold. An exhaustive check of 0.1-step and half-point scores for the five-criterion mean found no affected case.
 
 ## REMINDER for the owner: bot pipeline cost is not measured
@@ -47,7 +47,7 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 ## Open items from M9b-3
 
 - **ask-toby access.** The forbidden-phrase list should come from the ask-toby `medical-disclaimer` skill. `LedenevS/ask-toby` returned 404 for both the GitHub API and the web page, so the plan's list is used. Re-check when access exists and compare the lists.
-- **Judge not wired.** A scenario that asks for `llm_judge` gets a `warn` until M9b-4.
+- ~~**Judge not wired.** A scenario that asks for `llm_judge` gets a `warn` until M9b-4.~~ Resolved in M9b-4: the judge runs when a provider is given; without one the check is a `warn`.
 - **interpretation.schema** is accepted but not checked. No schema registry yet.
 - **Compliance on mixed replies.** A step that reads several replies at once (for example, upload confirmation plus interpretation) captures all of them, so the compliance and schema checks see the confirmation too. Keep the interpretation in its own step in M9b-5 scenarios.
 
@@ -71,12 +71,12 @@ Review of Chunks 3 and 4 against `TESTFORGE_EXECUTION_PLAN.md` found that M5-M7 
 | M7 performance verification (latency vs budget, per-stage) | M9b-3 done: total against budget, per-step breakdown. Per-stage limits listed as unverified |
 | M7 findings saved to `/runs/<id>/verification.json` | M9b-3 done: `verification.json` in the run folder |
 | CLI `testforge plan` / `run` / `verify` | Absent (M11) |
-| M9 rubric YAML (`fixtures/rubrics/interpretation_quality_v1.yml`) and loader | Absent; `JudgeCriteria` is five booleans |
-| M9 dimensions clarity / medical_appropriateness / russian_grammar / disclaimer_compliance with weights 0.25 / 0.40 / 0.20 / 0.15 | Built instead: correctness, helpfulness, safety, language_quality, relevance, unweighted mean |
-| M9 per-dimension `min_score` and CRITICAL dimensions (medical_appropriateness 8.0, disclaimer_compliance 9.0) | Absent; a single overall threshold (default 7.0, plan says 7.5) |
-| M9 per-dimension `{score, reasoning}` plus `overall_assessment` in the model's JSON | Flat `<name>_score` keys and one `reasoning` string |
-| M9 Jinja2 prompt template, Russian system prompt, document summary as input | `str.format`, English prompt, `user_query` / `bot_response` / `context` |
-| M9 Claude Sonnet 4 via `AnthropicProvider`, ADR-007 | Any `LLMProvider`; no default model, no ADR-007 |
-| M9 `/runs/<id>/judge_detailed.md` | Absent |
+| M9 rubric YAML (`fixtures/rubrics/interpretation_quality_v1.yml`) and loader | M9b-4 done: rubric file, loader, weights sum check, sandboxed template |
+| M9 dimensions clarity / medical_appropriateness / russian_grammar / disclaimer_compliance with weights 0.25 / 0.40 / 0.20 / 0.15 | M9b-4 done: the four plan dimensions, weights 0.25 / 0.40 / 0.20 / 0.15 |
+| M9 per-dimension `min_score` and CRITICAL dimensions (medical_appropriateness 8.0, disclaimer_compliance 9.0) | M9b-4 done: minimums and critical flags; threshold 7.5 from the rubric; non-critical misses are warnings |
+| M9 per-dimension `{score, reasoning}` plus `overall_assessment` in the model's JSON | M9b-4 done: required for every dimension, validated |
+| M9 Jinja2 prompt template, Russian system prompt, document summary as input | M9b-4 done: template in the rubric file (sandboxed), Russian system prompt, `document_summary` from expectations |
+| M9 Claude Sonnet 4 via `AnthropicProvider`, ADR-007 | Any `LLMProvider`; the model comes from the LLM config. ADR-007 comes in M9b-6 |
+| M9 `/runs/<id>/judge_detailed.md` | M9b-4 done: written with every judge run |
 
 Several of these (trace, budgets, baselines, reports) are consumed by M10 and M11, so they cannot be cleanly skipped. Decide whether to fold them into M10/M11 or add a milestone before M10.
