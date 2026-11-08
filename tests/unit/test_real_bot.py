@@ -282,9 +282,83 @@ class TestRealTelegramBot:
 
     @pytest.mark.asyncio
     async def test_context_manager(self):
-        """Bot should work as async context manager."""
-        async with RealTelegramBot(token="test") as bot:
-            assert bot is not None
+        """Exiting the context manager closes the HTTP client exactly once."""
+        bot = RealTelegramBot(token="test")
+        with patch.object(bot.client, "aclose", new=AsyncMock()) as mock_close:
+            async with bot as entered:
+                assert entered is bot
+                mock_close.assert_not_called()
+            mock_close.assert_called_once()
 
-        # Client should be closed after context
-        # (We can't easily test this without accessing internals)
+    @pytest.mark.asyncio
+    async def test_send_message_too_long_rejected(self, bot):
+        """Messages over Telegram's 4096-char limit are rejected before any API call."""
+        with patch.object(bot, "_api_request", new=AsyncMock()) as mock_api:
+            with pytest.raises(ValueError, match="too long"):
+                await bot.send_message("x" * 4097)
+            mock_api.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_message_at_limit_allowed(self, bot):
+        """A message of exactly 4096 chars is accepted."""
+        api_result = {
+            "message_id": 1,
+            "from": {"id": 999, "is_bot": True, "first_name": "Bot"},
+            "chat": {"id": 12345678},
+            "text": "x" * 4096,
+        }
+        with patch.object(bot, "_api_request", new=AsyncMock(return_value=api_result)):
+            message = await bot.send_message("x" * 4096)
+            assert len(message.text) == 4096
+
+    @pytest.mark.asyncio
+    async def test_api_request_invalid_json(self, bot):
+        """A non-JSON response (e.g. an HTML error page) becomes TelegramAPIError."""
+        with patch.object(bot.client, "post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.json.side_effect = ValueError("Expecting value")
+            mock_post.return_value = mock_response
+
+            with pytest.raises(TelegramAPIError, match="Invalid JSON"):
+                await bot._api_request("getMe")
+
+    @pytest.mark.asyncio
+    async def test_api_request_non_object_json(self, bot):
+        """A JSON body that isn't an object becomes TelegramAPIError."""
+        with patch.object(bot.client, "post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.json.return_value = ["unexpected"]
+            mock_post.return_value = mock_response
+
+            with pytest.raises(TelegramAPIError, match="Unexpected response shape"):
+                await bot._api_request("getMe")
+
+    @pytest.mark.asyncio
+    async def test_get_me_missing_id(self, bot):
+        """getMe without an 'id' raises TelegramAPIError rather than KeyError."""
+        with patch.object(bot, "_api_request", new=AsyncMock(return_value={"first_name": "Bot"})):
+            with pytest.raises(TelegramAPIError, match="missing 'id'"):
+                await bot.get_me()
+
+    @pytest.mark.asyncio
+    async def test_get_updates_update_missing_id(self, bot):
+        """An update without update_id raises TelegramAPIError."""
+        with patch.object(bot, "_api_request", new=AsyncMock(return_value=[{"edited_message": {}}])):
+            with pytest.raises(TelegramAPIError, match="update_id"):
+                await bot.get_updates()
+
+    @pytest.mark.asyncio
+    async def test_get_updates_message_missing_sender(self, bot):
+        """A message without 'from.id' raises TelegramAPIError rather than KeyError."""
+        malformed = [
+            {"update_id": 1, "message": {"message_id": 1, "chat": {"id": 1}, "text": "hi"}}
+        ]
+        with patch.object(bot, "_api_request", new=AsyncMock(return_value=malformed)):
+            with pytest.raises(TelegramAPIError, match="Malformed message"):
+                await bot.get_updates()
+
+    def test_satisfies_telegram_bot_protocol(self, bot):
+        """RealTelegramBot conforms to the shared TelegramBot interface."""
+        from testforge.telegram import TelegramBot
+
+        assert isinstance(bot, TelegramBot)

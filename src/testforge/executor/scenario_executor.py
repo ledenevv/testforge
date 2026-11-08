@@ -3,11 +3,11 @@
 import asyncio
 import time
 from pathlib import Path
-from typing import Any
 
 from testforge.executor.validators import ValidationError, validate_expect
 from testforge.scenarios.models import ActionType, Scenario, ScenarioResult, Step
 from testforge.telegram.models import TelegramUpdate
+from testforge.telegram.protocol import TelegramBot
 
 
 class ExecutionError(Exception):
@@ -24,7 +24,7 @@ class ScenarioExecutor:
     (for E2E validation).
     """
 
-    def __init__(self, bot: Any, verbose: bool = False):
+    def __init__(self, bot: TelegramBot, verbose: bool = False):
         """
         Initialize executor.
 

@@ -8,6 +8,9 @@ import httpx
 
 from testforge.telegram.models import TelegramMessage, TelegramUpdate, TelegramUser
 
+# Telegram rejects sendMessage text longer than this
+MAX_MESSAGE_LENGTH = 4096
+
 
 class TelegramAPIError(Exception):
     """Raised when Telegram API returns an error."""
@@ -85,7 +88,13 @@ class RealTelegramBot:
                 response = await self.client.post(url, json=params)
 
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as e:
+                raise TelegramAPIError(f"Invalid JSON in response to {method}: {e}") from e
+
+            if not isinstance(data, dict):
+                raise TelegramAPIError(f"Unexpected response shape for {method}")
 
             if not data.get("ok"):
                 error_description = data.get("description", "Unknown error")
@@ -112,6 +121,9 @@ class RealTelegramBot:
             return self._bot_user
 
         result = await self._api_request("getMe")
+
+        if "id" not in result:
+            raise TelegramAPIError("getMe response missing 'id' field")
 
         self._bot_user = TelegramUser(
             id=result["id"],
@@ -141,11 +153,16 @@ class RealTelegramBot:
 
         Raises:
             TelegramAPIError: If send fails
-            ValueError: If chat_id not provided and no default
+            ValueError: If chat_id not provided and no default, or text too long
         """
         target_chat_id = chat_id or self.chat_id
         if not target_chat_id:
             raise ValueError("chat_id must be provided or set as default")
+
+        if len(text) > MAX_MESSAGE_LENGTH:
+            raise ValueError(
+                f"Message too long: {len(text)} chars (max {MAX_MESSAGE_LENGTH})"
+            )
 
         params = {
             "chat_id": target_chat_id,
@@ -260,23 +277,26 @@ class RealTelegramBot:
         Returns:
             TelegramMessage object
         """
-        from_user_data = data.get("from", {})
-        from_user = TelegramUser(
-            id=from_user_data["id"],
-            is_bot=from_user_data.get("is_bot", False),
-            first_name=from_user_data.get("first_name", "User"),
-            last_name=from_user_data.get("last_name"),
-            username=from_user_data.get("username"),
-        )
+        try:
+            from_user_data = data.get("from", {})
+            from_user = TelegramUser(
+                id=from_user_data["id"],
+                is_bot=from_user_data.get("is_bot", False),
+                first_name=from_user_data.get("first_name", "User"),
+                last_name=from_user_data.get("last_name"),
+                username=from_user_data.get("username"),
+            )
 
-        return TelegramMessage(
-            message_id=data["message_id"],
-            **{"from": from_user},
-            chat_id=data["chat"]["id"],
-            text=data.get("text"),
-            document=data.get("document"),
-            photo=data.get("photo"),
-        )
+            return TelegramMessage(
+                message_id=data["message_id"],
+                **{"from": from_user},
+                chat_id=data["chat"]["id"],
+                text=data.get("text"),
+                document=data.get("document"),
+                photo=data.get("photo"),
+            )
+        except KeyError as e:
+            raise TelegramAPIError(f"Malformed message from Telegram: missing {e}") from e
 
     def _parse_update(self, data: dict[str, Any]) -> TelegramUpdate:
         """
@@ -288,6 +308,9 @@ class RealTelegramBot:
         Returns:
             TelegramUpdate object
         """
+        if "update_id" not in data:
+            raise TelegramAPIError("Malformed update from Telegram: missing 'update_id'")
+
         message = None
         if "message" in data:
             message = self._parse_message(data["message"])

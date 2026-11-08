@@ -4,9 +4,9 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from jinja2 import Template
+from jinja2 import Template, TemplateError
 
 from testforge.telegram.models import (
     ProfileData,
@@ -223,6 +223,12 @@ class MockTelegramBot:
         """
         file_path = Path(file_path)
 
+        try:
+            file_size = file_path.stat().st_size
+        except OSError:
+            # Missing or unreadable file: the mock doesn't need real content
+            file_size = 1024
+
         # Create document message
         message = TelegramMessage(
             message_id=self._next_message_id(),
@@ -232,7 +238,7 @@ class MockTelegramBot:
             document={
                 "file_name": file_path.name,
                 "mime_type": "application/pdf",
-                "file_size": file_path.stat().st_size if file_path.exists() else 1024,
+                "file_size": file_size,
             },
         )
         self.sent_messages.append(message)
@@ -282,17 +288,29 @@ class MockTelegramBot:
             await self._queue_text_response("Укажите год рождения:")
 
         elif self.state == "profile_birth_year":
-            self.profile_data["birth_year"] = int(text)
+            value = self._parse_number(text, int)
+            if value is None:
+                await self._queue_text_response("Пожалуйста, введите число. Укажите год рождения:")
+                return
+            self.profile_data["birth_year"] = value
             self.state = "profile_height"
             await self._queue_text_response("Укажите рост (см):")
 
         elif self.state == "profile_height":
-            self.profile_data["height_cm"] = int(text)
+            value = self._parse_number(text, int)
+            if value is None:
+                await self._queue_text_response("Пожалуйста, введите число. Укажите рост (см):")
+                return
+            self.profile_data["height_cm"] = value
             self.state = "profile_weight"
             await self._queue_text_response("Укажите вес (кг):")
 
         elif self.state == "profile_weight":
-            self.profile_data["weight_kg"] = float(text)
+            value = self._parse_number(text, float)
+            if value is None:
+                await self._queue_text_response("Пожалуйста, введите число. Укажите вес (кг):")
+                return
+            self.profile_data["weight_kg"] = value
             self.state = "profile_conditions"
             await self._queue_text_response(
                 "Есть ли хронические заболевания? (или 'нет')"
@@ -309,6 +327,14 @@ class MockTelegramBot:
                 await self._queue_text_response("✅ Профиль сохранён!")
             self.state = "idle"
 
+    @staticmethod
+    def _parse_number(text: str, kind: type[int] | type[float]) -> int | float | None:
+        """Parse numeric profile input; None if it isn't a valid number."""
+        try:
+            return kind(text.strip())
+        except ValueError:
+            return None
+
     async def _queue_response(self, response_data: dict[str, Any]) -> None:
         """Queue a bot response."""
         response = response_data.get("response", {})
@@ -320,8 +346,11 @@ class MockTelegramBot:
 
         # Render template if needed
         if "{{" in text:
-            template = Template(text)
-            text = template.render(profile=self.profile_data)
+            try:
+                text = Template(text).render(profile=self.profile_data)
+            except TemplateError:
+                # Malformed template in a fixture: send the raw text rather than crash
+                pass
 
         # Create bot message
         bot_message = TelegramMessage(
@@ -372,3 +401,12 @@ class MockTelegramBot:
         self.pending_responses = []
         self.state = "idle"
         self.profile_data = {}
+
+    async def close(self) -> None:
+        """No-op; present so the mock is interchangeable with RealTelegramBot."""
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.close()

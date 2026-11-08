@@ -7,9 +7,11 @@ from testforge.telegram.models import (
     TelegramUpdate,
     TelegramUser,
 )
+from testforge.telegram.protocol import TelegramBot
 from testforge.telegram.real_bot import RealTelegramBot, TelegramAPIError
 
 __all__ = [
+    "TelegramBot",
     "MockTelegramBot",
     "RealTelegramBot",
     "TelegramAPIError",

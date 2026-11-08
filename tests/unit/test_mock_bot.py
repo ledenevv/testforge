@@ -39,6 +39,7 @@ class TestMockTelegramBot:
         assert updates[0].message is not None
         assert "профиль" in updates[0].message.text.lower()
         assert "пол" in updates[0].message.text.lower()
+        assert bot.state == "profile_sex"
 
     @pytest.mark.asyncio
     async def test_send_help_command(self, bot):
@@ -71,21 +72,18 @@ class TestMockTelegramBot:
         await bot.send_document(pdf_file)
         updates = await bot.get_updates()
 
-        # Should get at least 2 responses: confirmation + interpretation
-        assert len(updates) >= 1
-        # First should be document received confirmation
+        # Confirmation followed by interpretation
+        assert len(updates) == 2
         assert "Документ получен" in updates[0].message.text or "Анализирую" in updates[0].message.text
+        assert "Резюме" in updates[1].message.text
 
     @pytest.mark.asyncio
     async def test_profile_flow(self, bot):
         """Profile setup flow should work sequentially."""
-        # Start profile flow
+        # Start profile flow: /consent itself must enter the flow
         await bot.send_message("/consent")
         updates = await bot.get_updates()
         assert "пол" in updates[0].message.text.lower()
-
-        # Set state manually to simulate profile flow
-        bot.state = "profile_sex"
 
         # Send sex
         await bot.send_message("m")
@@ -206,3 +204,69 @@ class TestMockTelegramBot:
 
         await bot.send_message("test2")
         assert len(bot.sent_messages) == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("state", "next_state"),
+        [
+            ("profile_birth_year", "profile_height"),
+            ("profile_height", "profile_weight"),
+            ("profile_weight", "profile_conditions"),
+        ],
+    )
+    async def test_profile_non_numeric_input_reprompts(self, bot, state, next_state):
+        """Non-numeric input in a numeric profile step re-asks instead of crashing."""
+        bot.state = state
+
+        await bot.send_message("не число")
+        updates = await bot.get_updates()
+
+        assert bot.state == state
+        assert len(updates) == 1
+        assert "число" in updates[0].message.text.lower()
+
+        # A valid answer afterwards still advances the flow
+        await bot.send_message("1985" if state == "profile_birth_year" else "75")
+        await bot.get_updates()
+        assert bot.state == next_state
+
+    @pytest.mark.asyncio
+    async def test_malformed_template_does_not_crash(self, tmp_path):
+        """A broken Jinja2 template in a fixture falls back to the raw text."""
+        import json
+
+        (tmp_path / "broken.json").write_text(
+            json.dumps(
+                {
+                    "trigger": {"command": "/broken"},
+                    "response": {"text": "Hello {{ unclosed", "delay_sec": 0},
+                }
+            ),
+            encoding="utf-8",
+        )
+        bot = MockTelegramBot(responses_dir=tmp_path)
+
+        await bot.send_message("/broken")
+        updates = await bot.get_updates()
+
+        assert updates[0].message.text == "Hello {{ unclosed"
+
+    @pytest.mark.asyncio
+    async def test_send_document_missing_file(self, bot, tmp_path):
+        """A nonexistent file still produces a document message with a default size."""
+        message = await bot.send_document(tmp_path / "does_not_exist.pdf")
+
+        assert message.document["file_name"] == "does_not_exist.pdf"
+        assert message.document["file_size"] == 1024
+
+    @pytest.mark.asyncio
+    async def test_context_manager(self):
+        """Mock supports the same async context manager as the real bot."""
+        async with MockTelegramBot() as bot:
+            await bot.send_message("/start")
+
+    def test_satisfies_telegram_bot_protocol(self, bot):
+        """MockTelegramBot conforms to the shared TelegramBot interface."""
+        from testforge.telegram import TelegramBot
+
+        assert isinstance(bot, TelegramBot)
