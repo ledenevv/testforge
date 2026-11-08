@@ -40,7 +40,9 @@
 - Trailing whitespace in `judge/models.py` and `tests/unit/test_judge.py`.
 - Not reproduced and not changed: a claim that the float mean can land just under the threshold. An exhaustive check of 0.1-step and half-point scores for the five-criterion mean found no affected case.
 
-## Plan divergence found in review (M5-M7, M9) - needs a decision
+## Plan divergence found in review (M5-M7, M9) - accepted into M9b
+
+Decision: add milestone M9b before M10. Plan, decisions and acceptance criteria: `m9b-plan-conformance.md`. Rows below are closed as M9b items complete.
 
 Review of Chunks 3 and 4 against `TESTFORGE_EXECUTION_PLAN.md` found that M5-M7 were built as a generic scenario runner plus assertion helpers, and M9 as a generic five-criterion judge, not as the plan describes. None of this is a defect in the code that exists; it is work the plan lists that does not exist yet.
 

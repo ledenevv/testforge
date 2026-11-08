@@ -779,6 +779,15 @@ testforge verify --run-id run-20261111-103022 --llm-judge
 
 ---
 
+#### M9b: Plan conformance (added after code review, before M10)
+M5-M7 и M9 были построены как универсальные компоненты и не покрывают их критерии приёмки выше (trace, бюджеты, compliance/cost-проверки, рубрика судьи, сценарии по плану). M10 зависит от этих данных, поэтому закрываем разрыв до M10.
+
+**Состав:** M9b-1 модель сценария и проверка файлов, M9b-2 trace и артефакты прогона, M9b-3 проверка прогона, M9b-4 судья по рубрике, M9b-5 сценарии по плану и потоки mock-бота, M9b-6 ADR и синтетические PDF (M10 не блокирует).
+
+**Детали, принятые решения, приёмка и оценка (~40 ч):** `_bmad-output/m9b-plan-conformance.md`.
+
+---
+
 #### M10: Baseline & Regression Detection (Day 15-16, 8h)
 **Tasks:**
 - [ ] `BaselineManager` class
