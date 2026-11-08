@@ -1,7 +1,6 @@
 """Validators for expect conditions."""
 
 import re
-from typing import Any
 
 from testforge.scenarios.models import ExpectCondition
 from testforge.telegram.models import TelegramUpdate

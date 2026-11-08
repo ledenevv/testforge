@@ -202,12 +202,14 @@ scenario:
         """Load all scenarios from directory."""
         scenarios = load_scenarios_from_directory(fixtures_dir)
 
-        # Should load all 5 fixture scenarios
-        assert len(scenarios) >= 4  # At least profile, document, smoke, multi_step
-
-        # Check IDs are unique
-        ids = [s.id for s in scenarios]
-        assert len(ids) == len(set(ids))  # No duplicates
+        ids = sorted(s.id for s in scenarios)
+        assert ids == [
+            "document_upload",
+            "env_var_test",
+            "multi_step",
+            "profile_setup",
+            "smoke_test",
+        ]
 
     def test_load_scenarios_from_nonexistent_directory(self):
         """Loading from nonexistent directory should raise error."""
@@ -252,6 +254,152 @@ scenario:
         )
         wrapped_scenario = load_scenario(wrapped_file)
         assert wrapped_scenario.id == "wrapped_scenario"
+
+
+def _write_scenario(path, body: str):
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+class TestScenarioStrictness:
+    """Typos and invalid input must fail loudly, not silently change behavior."""
+
+    def test_unknown_step_field_rejected(self):
+        """A misspelled `expect` must not silently produce a step with no checks."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="expects"):
+            Step(action=ActionType.SEND_MESSAGE, text="hi", expects={"contains": "x"})
+
+    def test_unknown_expect_field_rejected(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ExpectCondition(contain="x")
+
+    def test_unknown_scenario_field_rejected(self, tmp_path):
+        path = _write_scenario(
+            tmp_path / "typo.yaml",
+            "id: typo\ndescription: d\ntimeout: 5\nsteps:\n  - action: wait\n    duration_sec: 1\n",
+        )
+        with pytest.raises(ScenarioLoadError, match="timeout"):
+            load_scenario(path)
+
+    def test_invalid_regex_rejected_at_load(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid regex"):
+            ExpectCondition(matches_regex="(unclosed")
+
+
+class TestScenarioLoaderRobustness:
+    """Loader edge cases."""
+
+    @pytest.fixture
+    def fixtures_dir(self):
+        return Path("fixtures/scenarios")
+
+    def test_env_vars_substituted(self, monkeypatch, fixtures_dir):
+        monkeypatch.setenv("TEST_USER_NAME", "alice")
+        monkeypatch.setenv("TEST_ENV", "ci")
+
+        scenario = load_scenario(fixtures_dir / "env_var_test.yaml")
+
+        assert scenario.variables["test_user_name"] == "alice"
+        assert scenario.variables["test_message"] == "Hello from ci"
+
+    def test_unset_env_var_becomes_empty_like_config_loader(self, monkeypatch, fixtures_dir):
+        monkeypatch.delenv("TEST_USER_NAME", raising=False)
+        monkeypatch.delenv("TEST_ENV", raising=False)
+
+        scenario = load_scenario(fixtures_dir / "env_var_test.yaml")
+
+        assert scenario.variables["test_user_name"] == ""
+        assert scenario.variables["test_message"] == "Hello from "
+
+    def test_mixed_case_env_var_substituted(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MyVar", "value")
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nsteps:\n  - action: send_message\n    text: '${MyVar}'\n",
+        )
+        assert load_scenario(path).steps[0].text == "value"
+
+    def test_env_value_is_not_rendered_as_template(self, monkeypatch, tmp_path):
+        """An env value containing Jinja syntax stays literal."""
+        monkeypatch.setenv("SECRET", "{{ 7 * 7 }}")
+        # A variables block is required here: it is what triggers template rendering
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nvariables:\n  unrelated: x\nsteps:\n"
+            "  - action: send_message\n    text: '${SECRET}'\n",
+        )
+        assert load_scenario(path).steps[0].text == "{{ 7 * 7 }}"
+
+    def test_undefined_template_variable_rejected(self, tmp_path):
+        """A mistyped variable fails instead of rendering as an empty string."""
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nvariables:\n  name: bob\nsteps:\n"
+            "  - action: send_message\n    text: '{{ nmae }}'\n",
+        )
+        with pytest.raises(ScenarioLoadError, match="nmae"):
+            load_scenario(path)
+
+    def test_undefined_template_variable_rejected_without_variables_block(self, tmp_path):
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nsteps:\n  - action: send_message\n    text: '{{ missing }}'\n",
+        )
+        with pytest.raises(ScenarioLoadError, match="missing"):
+            load_scenario(path)
+
+    def test_unsafe_template_expression_rejected(self, tmp_path):
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nsteps:\n  - action: send_message\n"
+            "    text: \"{{ ''.__class__.__mro__ }}\"\n",
+        )
+        with pytest.raises(ScenarioLoadError):
+            load_scenario(path)
+
+    def test_passed_variables_are_kept_on_scenario(self, tmp_path):
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nsteps:\n  - action: send_message\n    text: '{{ greeting }}'\n",
+        )
+        scenario = load_scenario(path, variables={"greeting": "hello"})
+
+        assert scenario.steps[0].text == "hello"
+        assert scenario.variables == {"greeting": "hello"}
+
+    def test_null_variables_block_tolerated(self, tmp_path):
+        path = _write_scenario(
+            tmp_path / "s.yaml",
+            "id: s\ndescription: d\nvariables:\nsteps:\n  - action: send_message\n    text: hi\n",
+        )
+        assert load_scenario(path, variables={"a": "b"}).variables == {"a": "b"}
+
+    @pytest.mark.parametrize(
+        "body",
+        ["- just\n- a list\n", "scenario: not-a-mapping\n", "variables: [1, 2]\nid: s\n"],
+    )
+    def test_wrong_shape_raises_load_error(self, tmp_path, body):
+        path = _write_scenario(tmp_path / "bad.yaml", body)
+        with pytest.raises(ScenarioLoadError):
+            load_scenario(path)
+
+    def test_directory_instead_of_file_raises_load_error(self, tmp_path):
+        with pytest.raises(ScenarioLoadError, match="Cannot read"):
+            load_scenario(tmp_path)
+
+    def test_duplicate_ids_in_directory_rejected(self, tmp_path):
+        body = "id: same\ndescription: d\nsteps:\n  - action: wait\n    duration_sec: 1\n"
+        _write_scenario(tmp_path / "a.yaml", body)
+        _write_scenario(tmp_path / "b.yaml", body)
+
+        with pytest.raises(ScenarioLoadError, match="Duplicate scenario id 'same'"):
+            load_scenarios_from_directory(tmp_path)
 
 
 class TestScenarioResult:

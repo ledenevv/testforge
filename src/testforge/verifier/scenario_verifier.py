@@ -3,10 +3,9 @@
 from typing import Any
 
 from testforge.scenarios.models import ScenarioResult
-from testforge.telegram.models import ProfileData, TelegramMessage
 
 
-class AssertionError(Exception):
+class VerificationError(Exception):
     """Raised when verification assertion fails."""
 
     pass
@@ -38,11 +37,11 @@ class ScenarioVerifier:
             message: Error message if condition is False
 
         Raises:
-            AssertionError: If condition is False and strict mode enabled
+            VerificationError: If condition is False and strict mode enabled
         """
         if not condition:
             if self.strict:
-                raise AssertionError(message)
+                raise VerificationError(message)
             else:
                 self.warnings.append(message)
 
@@ -54,7 +53,7 @@ class ScenarioVerifier:
             result: Scenario execution result
 
         Raises:
-            AssertionError: If scenario failed
+            VerificationError: If scenario failed
         """
         self._assert(
             result.passed,
@@ -69,7 +68,7 @@ class ScenarioVerifier:
             result: Scenario execution result
 
         Raises:
-            AssertionError: If any steps failed
+            VerificationError: If any steps failed
         """
         self._assert(
             result.steps_failed == 0,
@@ -91,7 +90,7 @@ class ScenarioVerifier:
             expected_passed: Expected number of passed steps
 
         Raises:
-            AssertionError: If counts don't match
+            VerificationError: If counts don't match
         """
         if expected_executed is not None:
             self._assert(
@@ -120,7 +119,7 @@ class ScenarioVerifier:
             max_sec: Maximum expected duration in seconds
 
         Raises:
-            AssertionError: If duration is outside bounds
+            VerificationError: If duration is outside bounds
         """
         if min_sec is not None:
             self._assert(
@@ -143,10 +142,10 @@ class ScenarioVerifier:
             expected_state: Expected state value
 
         Raises:
-            AssertionError: If state doesn't match
+            VerificationError: If state doesn't match
         """
         if not hasattr(bot, "state"):
-            self._assert(False, f"Bot does not have 'state' attribute")
+            self._assert(False, "Bot does not have 'state' attribute")
             return
 
         self._assert(
@@ -154,41 +153,29 @@ class ScenarioVerifier:
             f"Expected bot state '{expected_state}', got '{bot.state}'",
         )
 
-    def verify_message_count(
-        self,
-        bot: Any,
-        expected_sent: int | None = None,
-        expected_received: int | None = None,
-    ) -> None:
+    def verify_message_count(self, bot: Any, expected_sent: int) -> None:
         """
-        Verify message counts.
+        Verify the number of messages the test user sent.
+
+        Counting bot replies is not supported: they are only available through
+        the async get_updates(), which this synchronous verifier cannot call.
 
         Args:
             bot: Bot instance
             expected_sent: Expected number of sent messages (from user)
-            expected_received: Expected number of received messages (from bot)
 
         Raises:
-            AssertionError: If counts don't match
+            VerificationError: If counts don't match
         """
-        if expected_sent is not None:
-            if not hasattr(bot, "sent_messages"):
-                self._assert(False, "Bot does not have 'sent_messages' attribute")
-            else:
-                actual = len(bot.sent_messages)
-                self._assert(
-                    actual == expected_sent,
-                    f"Expected {expected_sent} sent messages, got {actual}",
-                )
+        if not hasattr(bot, "sent_messages"):
+            self._assert(False, "Bot does not have 'sent_messages' attribute")
+            return
 
-        if expected_received is not None:
-            if not hasattr(bot, "pending_responses"):
-                # Try to get updates
-                if hasattr(bot, "get_updates"):
-                    # Note: This is async, simplified check
-                    pass
-            # For simplicity, skip this check in M7
-            # Real implementation would use async get_updates()
+        actual = len(bot.sent_messages)
+        self._assert(
+            actual == expected_sent,
+            f"Expected {expected_sent} sent messages, got {actual}",
+        )
 
     def verify_profile_complete(self, bot: Any) -> None:
         """
@@ -198,7 +185,7 @@ class ScenarioVerifier:
             bot: Bot instance with profile_data attribute
 
         Raises:
-            AssertionError: If profile is incomplete
+            VerificationError: If profile is incomplete
         """
         if not hasattr(bot, "profile_data"):
             self._assert(False, "Bot does not have 'profile_data' attribute")
@@ -223,7 +210,7 @@ class ScenarioVerifier:
             expected: Expected profile data (dict)
 
         Raises:
-            AssertionError: If profile doesn't match
+            VerificationError: If profile doesn't match
         """
         if not hasattr(bot, "profile_data"):
             self._assert(False, "Bot does not have 'profile_data' attribute")
@@ -244,14 +231,16 @@ class ScenarioVerifier:
         expected_keywords: list[str],
     ) -> None:
         """
-        Verify conversation contains expected keywords in order.
+        Verify the messages the test user sent contain keywords in order.
+
+        Only user-sent messages (bot.sent_messages) are inspected, not bot replies.
 
         Args:
             bot: Bot instance
             expected_keywords: List of keywords that should appear in order
 
         Raises:
-            AssertionError: If keywords not found or out of order
+            VerificationError: If keywords not found or out of order
         """
         if not hasattr(bot, "sent_messages"):
             self._assert(False, "Bot does not have 'sent_messages' attribute")
@@ -271,7 +260,10 @@ class ScenarioVerifier:
                 index > last_index,
                 f"Expected keyword '{keyword}' not found in conversation flow",
             )
-            last_index = index
+            if index > last_index:
+                # Don't move the cursor on a miss (non-strict mode), or later
+                # keywords would be searched from the start again.
+                last_index = index
 
     def verify_no_errors_logged(self, result: ScenarioResult) -> None:
         """
@@ -281,14 +273,14 @@ class ScenarioVerifier:
             result: Scenario execution result
 
         Raises:
-            AssertionError: If logs contain error messages
+            VerificationError: If logs contain error messages
         """
         error_keywords = ["error", "failed", "exception"]
 
         for log in result.logs:
             log_lower = log.lower()
             for keyword in error_keywords:
-                if keyword in log_lower and "passed" not in log_lower:
+                if keyword in log_lower:
                     self._assert(
                         False,
                         f"Found error keyword '{keyword}' in log: {log[:100]}",
@@ -303,7 +295,7 @@ class ScenarioVerifier:
             expected: Expected text in logs
 
         Raises:
-            AssertionError: If text not found in logs
+            VerificationError: If text not found in logs
         """
         all_logs = "\n".join(result.logs)
         self._assert(
@@ -320,7 +312,7 @@ class ScenarioVerifier:
             unexpected: Text that should not be in logs
 
         Raises:
-            AssertionError: If text found in logs
+            VerificationError: If text found in logs
         """
         all_logs = "\n".join(result.logs)
         self._assert(

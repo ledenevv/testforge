@@ -1,14 +1,23 @@
 """Scenario loader from YAML files."""
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
-from jinja2 import Template
+from jinja2 import StrictUndefined, TemplateError
+from jinja2.sandbox import SandboxedEnvironment
 from pydantic import ValidationError
 
 from testforge.scenarios.models import Scenario
+
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+# Sandboxed + strict: env values are substituted before rendering and must not
+# be able to execute code, and a mistyped variable must fail instead of
+# silently rendering as an empty string.
+_JINJA_ENV = SandboxedEnvironment(undefined=StrictUndefined)
 
 
 class ScenarioLoadError(Exception):
@@ -21,14 +30,11 @@ def _substitute_env_vars(data: Any) -> Any:
     """
     Recursively substitute environment variables in data.
 
-    Supports ${VAR_NAME} syntax, same as config loader.
+    Supports ${VAR_NAME} syntax with the same rules as the config loader:
+    unset variables become an empty string.
     """
     if isinstance(data, str):
-        # Simple ${VAR} substitution
-        if "${" in data:
-            for key, value in os.environ.items():
-                data = data.replace(f"${{{key}}}", value)
-        return data
+        return _ENV_VAR_PATTERN.sub(lambda m: os.environ.get(m.group(1), ""), data)
     elif isinstance(data, dict):
         return {k: _substitute_env_vars(v) for k, v in data.items()}
     elif isinstance(data, list):
@@ -52,8 +58,10 @@ def _render_template(text: str, variables: dict[str, Any]) -> str:
         # No template syntax, return as-is
         return text
 
-    template = Template(text)
-    return template.render(**variables)
+    try:
+        return _JINJA_ENV.from_string(text).render(**variables)
+    except TemplateError as e:
+        raise ScenarioLoadError(f"Template error in {text[:60]!r}: {e}") from e
 
 
 def _render_scenario_templates(data: dict[str, Any], variables: dict[str, Any]) -> dict[str, Any]:
@@ -102,34 +110,42 @@ def load_scenario(path: str | Path, variables: dict[str, Any] | None = None) -> 
         with open(path, encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
     except yaml.YAMLError as e:
-        raise ScenarioLoadError(f"Invalid YAML in {path}: {e}")
+        raise ScenarioLoadError(f"Invalid YAML in {path}: {e}") from e
+    except (OSError, UnicodeDecodeError) as e:
+        raise ScenarioLoadError(f"Cannot read {path}: {e}") from e
 
     if not raw_data:
         raise ScenarioLoadError(f"Empty scenario file: {path}")
 
-    # Extract scenario data (handle both root-level and "scenario:" wrapper)
-    if "scenario" in raw_data:
-        scenario_data = raw_data["scenario"]
-    else:
-        scenario_data = raw_data
+    if not isinstance(raw_data, dict):
+        raise ScenarioLoadError(f"Scenario file must contain a mapping: {path}")
 
-    # Substitute environment variables
-    scenario_data = _substitute_env_vars(scenario_data)
+    # Extract scenario data (handle both root-level and "scenario:" wrapper)
+    scenario_data = raw_data.get("scenario", raw_data)
+    if not isinstance(scenario_data, dict):
+        raise ScenarioLoadError(f"'scenario' must be a mapping in {path}")
 
     # Merge variables (file variables + passed variables)
-    file_variables = scenario_data.get("variables", {})
-    if variables:
-        file_variables.update(variables)
+    file_variables = scenario_data.get("variables") or {}
+    if not isinstance(file_variables, dict):
+        raise ScenarioLoadError(f"'variables' must be a mapping in {path}")
+    merged_variables = {**file_variables, **(variables or {})}
+    if merged_variables:
+        scenario_data["variables"] = merged_variables
 
-    # Render Jinja2 templates
-    if file_variables:
-        scenario_data = _render_scenario_templates(scenario_data, file_variables)
+    # Render Jinja2 templates first, then substitute environment variables, so
+    # environment values are never interpreted as templates.
+    try:
+        scenario_data = _render_scenario_templates(scenario_data, merged_variables)
+    except ScenarioLoadError as e:
+        raise ScenarioLoadError(f"{path}: {e}") from e
+    scenario_data = _substitute_env_vars(scenario_data)
 
     # Parse into Pydantic model
     try:
         scenario = Scenario(**scenario_data)
     except ValidationError as e:
-        raise ScenarioLoadError(f"Validation error in {path}: {e}")
+        raise ScenarioLoadError(f"Validation error in {path}: {e}") from e
 
     return scenario
 
@@ -175,5 +191,11 @@ def load_scenarios_from_directory(
         raise ScenarioLoadError(
             f"Failed to load {len(errors)} scenario(s):\n" + "\n".join(errors)
         )
+
+    seen: set[str] = set()
+    for scenario in scenarios:
+        if scenario.id in seen:
+            raise ScenarioLoadError(f"Duplicate scenario id '{scenario.id}' in {directory}")
+        seen.add(scenario.id)
 
     return scenarios

@@ -1,9 +1,10 @@
 """Scenario data models."""
 
+import re
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ActionType(str, Enum):
@@ -17,7 +18,16 @@ class ActionType(str, Enum):
 
 
 class ExpectCondition(BaseModel):
-    """Expected condition for verification."""
+    """
+    Expected condition for verification.
+
+    Conditions are checked against every bot update received since the previous
+    check (each check consumes them), concatenated into one text.
+    """
+
+    # Unknown keys are rejected: a typo such as `expects:` would otherwise
+    # silently turn a step into one with no checks at all.
+    model_config = ConfigDict(extra="forbid")
 
     contains: str | None = Field(
         default=None,
@@ -42,9 +52,21 @@ class ExpectCondition(BaseModel):
         description="Wait this many seconds before checking",
     )
 
+    @field_validator("matches_regex")
+    @classmethod
+    def regex_must_compile(cls, v: str | None) -> str | None:
+        if v is not None:
+            try:
+                re.compile(v)
+            except re.error as e:
+                raise ValueError(f"Invalid regex {v!r}: {e}") from e
+        return v
+
 
 class Step(BaseModel):
     """Single step in a test scenario."""
+
+    model_config = ConfigDict(extra="forbid")
 
     action: ActionType = Field(description="Action to perform")
     description: str | None = Field(
@@ -77,12 +99,17 @@ class Step(BaseModel):
     # Metadata
     critical: bool = Field(
         default=True,
-        description="If True, failure stops scenario. If False, logs warning and continues.",
+        description=(
+            "If True, failure stops the scenario. If False, the remaining steps "
+            "still run, but the scenario is still reported as failed."
+        ),
     )
 
 
 class Scenario(BaseModel):
     """Test scenario definition."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str = Field(
         min_length=1,
@@ -100,7 +127,10 @@ class Scenario(BaseModel):
     )
     mode: Literal["mock", "real"] = Field(
         default="mock",
-        description="Bot mode: 'mock' for MockTelegramBot, 'real' for RealTelegramBot",
+        description=(
+            "Bot mode: 'mock' for MockTelegramBot, 'real' for RealTelegramBot. "
+            "Informational: the executor runs against whichever bot it is given."
+        ),
     )
 
     # Scenario steps
@@ -117,13 +147,13 @@ class Scenario(BaseModel):
     )
     retry_on_failure: bool = Field(
         default=False,
-        description="Retry scenario if it fails",
+        description="Reserved: not yet applied by the executor",
     )
     max_retries: int = Field(
         default=0,
         ge=0,
         le=5,
-        description="Maximum retry attempts (if retry_on_failure=True)",
+        description="Reserved: not yet applied by the executor",
     )
 
     # Variables for templating

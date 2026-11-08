@@ -7,7 +7,7 @@ import pytest
 from testforge.executor import ScenarioExecutor
 from testforge.scenarios import load_scenario
 from testforge.telegram import MockTelegramBot
-from testforge.verifier import AssertionError, ScenarioVerifier
+from testforge.verifier import ScenarioVerifier, VerificationError
 
 
 class TestVerifierIntegration:
@@ -142,9 +142,32 @@ class TestVerifierIntegration:
         scenario = load_scenario(scenarios_dir / "smoke_test.yaml")
         result = await executor.run(scenario)
 
-        # Should not have error keywords (though it might have "FAILED" in step descriptions)
-        # This test is lenient - just checking the verifier works
-        # In real use, we'd check only critical errors
+        assert result.passed is True
+        verifier.verify_no_errors_logged(result)
+
+    @pytest.mark.asyncio
+    async def test_verify_no_errors_detects_failed_scenario(
+        self, executor, verifier
+    ):
+        """A failed scenario's logs must be flagged, including its summary line."""
+        from testforge.scenarios import ActionType, ExpectCondition, Scenario, Step
+
+        scenario = Scenario(
+            id="failing",
+            description="Fails its only step",
+            steps=[
+                Step(
+                    action=ActionType.SEND_MESSAGE,
+                    text="/start",
+                    expect=ExpectCondition(contains="WILL_FAIL"),
+                )
+            ],
+        )
+        result = await executor.run(scenario)
+
+        assert result.passed is False
+        with pytest.raises(VerificationError, match="FAILED|failed"):
+            verifier.verify_no_errors_logged(result)
 
     @pytest.mark.asyncio
     async def test_verify_logs_structure(
@@ -188,7 +211,7 @@ class TestVerifierIntegration:
         result = await executor.run(scenario)
 
         # Wrong assertion should raise
-        with pytest.raises(AssertionError):
+        with pytest.raises(VerificationError):
             verifier.verify_step_count(result, expected_executed=999)
 
     @pytest.mark.asyncio

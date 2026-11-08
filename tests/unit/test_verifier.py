@@ -3,7 +3,7 @@
 import pytest
 
 from testforge.scenarios.models import ScenarioResult
-from testforge.verifier import AssertionError, ScenarioVerifier
+from testforge.verifier import ScenarioVerifier, VerificationError
 
 
 class MockBot:
@@ -58,7 +58,7 @@ class TestScenarioVerifier:
 
     def test_verify_result_passed_failure(self, verifier, failed_result):
         """Verify failed result should raise."""
-        with pytest.raises(AssertionError, match="failed"):
+        with pytest.raises(VerificationError, match="failed"):
             verifier.verify_result_passed(failed_result)
 
     def test_verify_all_steps_passed_success(self, verifier, passed_result):
@@ -67,7 +67,7 @@ class TestScenarioVerifier:
 
     def test_verify_all_steps_passed_failure(self, verifier, failed_result):
         """Verify with failed steps should raise."""
-        with pytest.raises(AssertionError, match="failed"):
+        with pytest.raises(VerificationError, match="failed"):
             verifier.verify_all_steps_passed(failed_result)
 
     def test_verify_step_count_success(self, verifier, passed_result):
@@ -80,12 +80,12 @@ class TestScenarioVerifier:
 
     def test_verify_step_count_executed_mismatch(self, verifier, passed_result):
         """Verify wrong executed count should raise."""
-        with pytest.raises(AssertionError, match="executed"):
+        with pytest.raises(VerificationError, match="executed"):
             verifier.verify_step_count(passed_result, expected_executed=5)
 
     def test_verify_step_count_passed_mismatch(self, verifier, passed_result):
         """Verify wrong passed count should raise."""
-        with pytest.raises(AssertionError, match="passed"):
+        with pytest.raises(VerificationError, match="passed"):
             verifier.verify_step_count(passed_result, expected_passed=2)
 
     def test_verify_duration_within_success(self, verifier, passed_result):
@@ -98,12 +98,12 @@ class TestScenarioVerifier:
 
     def test_verify_duration_too_short(self, verifier, passed_result):
         """Verify duration below minimum should raise."""
-        with pytest.raises(AssertionError, match="duration"):
+        with pytest.raises(VerificationError, match="duration"):
             verifier.verify_duration_within(passed_result, min_sec=5.0)
 
     def test_verify_duration_too_long(self, verifier, passed_result):
         """Verify duration above maximum should raise."""
-        with pytest.raises(AssertionError, match="duration"):
+        with pytest.raises(VerificationError, match="duration"):
             verifier.verify_duration_within(passed_result, max_sec=1.0)
 
     def test_verify_bot_state_success(self, verifier):
@@ -118,7 +118,7 @@ class TestScenarioVerifier:
         bot = MockBot()
         bot.state = "active"
 
-        with pytest.raises(AssertionError, match="state"):
+        with pytest.raises(VerificationError, match="state"):
             verifier.verify_bot_state(bot, expected_state="idle")
 
     def test_verify_message_count_success(self, verifier):
@@ -133,7 +133,7 @@ class TestScenarioVerifier:
         bot = MockBot()
         bot.sent_messages = ["msg1", "msg2"]
 
-        with pytest.raises(AssertionError, match="sent messages"):
+        with pytest.raises(VerificationError, match="sent messages"):
             verifier.verify_message_count(bot, expected_sent=5)
 
     def test_verify_profile_complete_success(self, verifier):
@@ -157,7 +157,7 @@ class TestScenarioVerifier:
             # Missing height_cm and weight_kg
         }
 
-        with pytest.raises(AssertionError, match="missing required field"):
+        with pytest.raises(VerificationError, match="missing required field"):
             verifier.verify_profile_complete(bot)
 
     def test_verify_profile_matches_success(self, verifier):
@@ -179,7 +179,7 @@ class TestScenarioVerifier:
         bot = MockBot()
         bot.profile_data = {"sex": "m", "birth_year": 1990}
 
-        with pytest.raises(AssertionError, match="expected f"):
+        with pytest.raises(VerificationError, match="expected f"):
             verifier.verify_profile_matches(bot, expected={"sex": "f"})
 
     def test_verify_logs_contain_success(self, verifier, passed_result):
@@ -188,7 +188,7 @@ class TestScenarioVerifier:
 
     def test_verify_logs_contain_failure(self, verifier, passed_result):
         """Verify logs missing text should raise."""
-        with pytest.raises(AssertionError, match="not found"):
+        with pytest.raises(VerificationError, match="not found"):
             verifier.verify_logs_contain(passed_result, "MISSING_TEXT")
 
     def test_verify_logs_not_contain_success(self, verifier, passed_result):
@@ -197,7 +197,7 @@ class TestScenarioVerifier:
 
     def test_verify_logs_not_contain_failure(self, verifier, passed_result):
         """Verify logs contain unwanted text should raise."""
-        with pytest.raises(AssertionError, match="found in logs"):
+        with pytest.raises(VerificationError, match="found in logs"):
             verifier.verify_logs_not_contain(passed_result, "Starting")
 
     def test_collect_artifacts(self, verifier, passed_result):
@@ -225,7 +225,7 @@ class TestScenarioVerifier:
             error="Test error",
         )
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(VerificationError):
             verifier.verify_result_passed(result)
 
     def test_non_strict_mode_logs_warning(self):
@@ -293,8 +293,51 @@ class TestScenarioVerifier:
             logs=["Starting scenario", "Step 1 error: validation failed"],
         )
 
-        with pytest.raises(AssertionError, match="error keyword"):
+        with pytest.raises(VerificationError, match="error keyword"):
             verifier.verify_no_errors_logged(result)
+
+    def test_verify_no_errors_logged_flags_failed_summary_line(self, verifier):
+        """The executor's failure summary mentions 'passed' but must still be flagged."""
+        result = ScenarioResult(
+            scenario_id="test",
+            passed=False,
+            duration_sec=1.0,
+            steps_executed=3,
+            steps_passed=2,
+            steps_failed=1,
+            logs=["Scenario finished: FAILED (2/3 steps passed, 0.10s)"],
+        )
+
+        with pytest.raises(VerificationError, match="failed"):
+            verifier.verify_no_errors_logged(result)
+
+    def _user_messages(self, *texts):
+        from testforge.telegram.models import TelegramMessage, TelegramUser
+
+        user = TelegramUser(id=123, first_name="Test")
+        return [
+            TelegramMessage(message_id=i, **{"from": user}, chat_id=123, text=t)
+            for i, t in enumerate(texts, start=1)
+        ]
+
+    def test_verify_conversation_flow_wrong_order_raises(self, verifier):
+        """Keywords that exist but in the wrong order must fail."""
+        bot = MockBot()
+        bot.sent_messages = self._user_messages("/consent", "/start")
+
+        with pytest.raises(VerificationError, match="not found"):
+            verifier.verify_conversation_flow(bot, ["/start", "/consent"])
+
+    def test_verify_conversation_flow_non_strict_keeps_cursor_after_miss(self):
+        """A missing keyword must not reset ordering for the keywords after it."""
+        verifier = ScenarioVerifier(strict=False)
+        bot = MockBot()
+        # "b" appears before "a", so ["a", <missing>, "b"] is out of order twice over
+        bot.sent_messages = self._user_messages("b", "a")
+
+        verifier.verify_conversation_flow(bot, ["a", "missing", "b"])
+
+        assert len(verifier.warnings) == 2
 
     def test_verify_conversation_flow_success(self, verifier):
         """Verify conversation flow with keywords in order should not raise."""
@@ -348,6 +391,6 @@ class TestScenarioVerifier:
             ),
         ]
 
-        with pytest.raises(AssertionError, match="not found"):
+        with pytest.raises(VerificationError, match="not found"):
             # Expecting "/consent" which doesn't appear
             verifier.verify_conversation_flow(bot, ["/start", "/consent"])

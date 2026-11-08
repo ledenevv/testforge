@@ -61,21 +61,21 @@ scenario:
       expect:
         contains: "Справка"
 
-    # Step 9: Upload document
+    # Step 9: Upload document (no expect: an expectation would consume the
+    # interpretation along with the confirmation; both are checked in step 11)
     - action: send_document
       description: Upload test document
       document_path: "fixtures/test_data/sample_lab_report.pdf"
-      expect:
-        contains: "получен"
 
     # Step 10: Wait for processing
     - action: wait
       duration_sec: 2.0
 
-    # Step 11: Verify interpretation
+    # Step 11: Verify confirmation and interpretation
     - action: expect_response
       expect:
-        contains: "Резюме"
+        contains: "получен"
+        matches_regex: "Резюме"
 
   timeout_sec: 90
   retry_on_failure: false

@@ -67,9 +67,50 @@ class TestScenarioExecutor:
         result = await executor.run(scenario)
 
         assert result.scenario_id == "multi_step"
-        # May have some steps fail (document upload), but should execute most
-        assert result.steps_executed >= 8
+        assert result.error is None
+        assert result.passed is True
+        assert result.steps_executed == 11
+        assert result.steps_failed == 0
         assert result.duration_sec > 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "name",
+        ["smoke_test", "profile_setup", "document_upload", "multi_step", "env_var_test"],
+    )
+    async def test_every_fixture_scenario_passes(self, executor, scenarios_dir, name):
+        """Every shipped fixture scenario must pass against the mock bot."""
+        result = await executor.run(load_scenario(scenarios_dir / f"{name}.yaml"))
+
+        assert result.error is None
+        assert result.steps_failed == 0
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_expectation_consumes_pending_updates(self, executor, tmp_path):
+        """Each expectation consumes everything received since the previous check."""
+        from testforge.scenarios import ActionType, ExpectCondition, Scenario, Step
+
+        doc = tmp_path / "doc.pdf"
+        doc.write_text("x")
+        scenario = Scenario(
+            id="test_consume",
+            description="Upload yields two updates; the first check takes both",
+            steps=[
+                Step(action=ActionType.SEND_DOCUMENT, document_path=str(doc)),
+                Step(
+                    action=ActionType.EXPECT_RESPONSE,
+                    expect=ExpectCondition(response_count=2),
+                ),
+                Step(
+                    action=ActionType.EXPECT_RESPONSE,
+                    expect=ExpectCondition(response_count=0),
+                ),
+            ],
+        )
+
+        result = await executor.run(scenario)
+        assert result.passed is True
 
     @pytest.mark.asyncio
     async def test_executor_logs_steps(self, executor, scenarios_dir):
@@ -214,9 +255,11 @@ class TestScenarioExecutor:
         assert result.steps_executed == 2
         assert result.steps_passed == 1
         assert result.steps_failed == 1
-        # Overall scenario passes because only non-critical step failed
-        # Actually, let's check - if any step fails, scenario fails
-        # Unless we change the logic to only count critical failures
+        # A non-critical failure lets later steps run but still fails the scenario,
+        # and the first failure is reported even though it did not stop the run.
+        assert result.passed is False
+        assert result.failed_step_index == 0
+        assert "WILL_FAIL" in result.error
 
     @pytest.mark.asyncio
     async def test_critical_step_stops_scenario(self, executor):
@@ -354,3 +397,114 @@ class TestScenarioExecutor:
 
         result_fail = await executor.run(scenario_fail)
         assert result_fail.passed is False
+
+    @pytest.mark.asyncio
+    async def test_scenario_timeout_is_enforced(self, executor):
+        """A scenario that outlasts timeout_sec fails with a timeout error."""
+        import time
+
+        from testforge.scenarios import ActionType, Scenario, Step
+
+        scenario = Scenario(
+            id="test_timeout",
+            description="Wait longer than the scenario timeout",
+            timeout_sec=1,
+            steps=[
+                Step(action=ActionType.WAIT, duration_sec=0.1),
+                Step(action=ActionType.WAIT, duration_sec=30),
+            ],
+        )
+
+        start = time.perf_counter()
+        result = await executor.run(scenario)
+        elapsed = time.perf_counter() - start
+
+        assert elapsed < 5  # would be ~30s if the timeout were ignored
+        assert result.passed is False
+        assert "timed out" in result.error
+        assert result.steps_executed == 1  # the first wait completed
+        assert result.steps_failed == 1  # the in-flight wait counts as failed
+        assert result.failed_step_index == 1
+
+    @pytest.mark.asyncio
+    async def test_unexpected_bot_error_becomes_step_failure(self):
+        """A bot/network error fails the step instead of escaping run()."""
+        from testforge.scenarios import ActionType, Scenario, Step
+
+        class ExplodingBot:
+            sent_messages: list = []
+
+            def reset(self):
+                pass
+
+            async def send_message(self, text):
+                raise RuntimeError("boom")
+
+            async def get_updates(self, timeout=10):
+                return []
+
+        scenario = Scenario(
+            id="test_exploding_bot",
+            description="Bot raises on send",
+            steps=[
+                Step(action=ActionType.SEND_MESSAGE, text="/start"),
+                Step(action=ActionType.WAIT, duration_sec=0.1),
+            ],
+        )
+
+        result = await ScenarioExecutor(bot=ExplodingBot()).run(scenario)
+
+        assert result.passed is False
+        assert result.steps_failed == 1
+        assert result.steps_executed == 1  # critical failure stopped the run
+        assert result.failed_step_index == 0
+        assert "RuntimeError: boom" in result.error
+
+    @pytest.mark.asyncio
+    async def test_verify_state_is_not_a_false_pass(self, executor):
+        """The unimplemented verify_state action must fail, not silently pass."""
+        from testforge.scenarios import ActionType, Scenario, Step
+
+        scenario = Scenario(
+            id="test_verify_state",
+            description="verify_state placeholder",
+            steps=[Step(action=ActionType.VERIFY_STATE)],
+        )
+
+        result = await executor.run(scenario)
+
+        assert result.passed is False
+        assert "not implemented" in result.error
+
+    @pytest.mark.asyncio
+    async def test_executor_resets_bot_at_start_of_run(self, bot, executor):
+        """Stale bot state from earlier activity must not leak into a run."""
+        from testforge.scenarios import ActionType, ExpectCondition, Scenario, Step
+
+        # Leave an unconsumed reply (and a mid-flow state) on the bot
+        await bot.send_message("/consent")
+        assert bot.state == "profile_sex"
+
+        scenario = Scenario(
+            id="test_reset",
+            description="Exactly one reply expected to /start",
+            steps=[
+                Step(
+                    action=ActionType.SEND_MESSAGE,
+                    text="/start",
+                    expect=ExpectCondition(response_count=1, contains="Этот бот"),
+                )
+            ],
+        )
+
+        result = await executor.run(scenario)
+
+        assert result.passed is True
+        assert bot.state == "idle"
+
+    @pytest.mark.asyncio
+    async def test_result_logs_include_final_summary(self, executor, scenarios_dir):
+        """The 'Scenario finished' line is part of result.logs."""
+        result = await executor.run(load_scenario(scenarios_dir / "smoke_test.yaml"))
+
+        assert any("Scenario finished: PASSED" in log for log in result.logs)

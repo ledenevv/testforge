@@ -2,11 +2,11 @@
 
 import asyncio
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from testforge.executor.validators import ValidationError, validate_expect
 from testforge.scenarios.models import ActionType, Scenario, ScenarioResult, Step
-from testforge.telegram.models import TelegramUpdate
 from testforge.telegram.protocol import TelegramBot
 
 
@@ -14,6 +14,23 @@ class ExecutionError(Exception):
     """Raised when scenario execution fails."""
 
     pass
+
+
+@dataclass
+class _Progress:
+    """Mutable step counters, shared so a timeout can still report what ran."""
+
+    executed: int = 0
+    passed: int = 0
+    failed: int = 0
+    error: str | None = None
+    first_failed_index: int | None = None
+
+    def record_failure(self, index: int, message: str) -> None:
+        """Remember the first failure only."""
+        if self.first_failed_index is None:
+            self.first_failed_index = index
+            self.error = message
 
 
 class ScenarioExecutor:
@@ -47,92 +64,87 @@ class ScenarioExecutor:
         """
         Run a scenario.
 
+        The bot is reset first so state from a previous scenario cannot leak in.
+        Each expectation consumes every update received since the previous check.
+
+        A scenario passes only if every step passed; a failed non-critical step
+        lets the remaining steps run but still fails the scenario.
+
         Args:
             scenario: Scenario to execute
 
         Returns:
             ScenarioResult with execution details
         """
-        # Reset state
+        self.bot.reset()
         self.logs = []
         self.screenshots = []
 
         self._log(f"Starting scenario: {scenario.id}")
         start_time = time.perf_counter()
-
-        steps_executed = 0
-        steps_passed = 0
-        steps_failed = 0
-        error: str | None = None
-        failed_step_index: int | None = None
+        progress = _Progress()
 
         try:
-            # Execute each step
-            for idx, step in enumerate(scenario.steps):
-                self._log(f"Step {idx + 1}/{len(scenario.steps)}: {step.action.value}")
-
-                try:
-                    await self._execute_step(step, scenario)
-                    steps_executed += 1
-                    steps_passed += 1
-                    self._log(f"  ✓ Step {idx + 1} passed")
-
-                except (ValidationError, ExecutionError) as e:
-                    steps_executed += 1
-                    steps_failed += 1
-
-                    if step.critical:
-                        # Critical step failed - stop scenario
-                        error = str(e)
-                        failed_step_index = idx
-                        self._log(f"  ✗ Step {idx + 1} FAILED (critical): {e}")
-                        break
-                    else:
-                        # Non-critical step - log and continue
-                        self._log(f"  ⚠ Step {idx + 1} FAILED (non-critical): {e}")
-
-            # Check if scenario passed
-            passed = steps_failed == 0 and error is None
-
-            duration = time.perf_counter() - start_time
-
-            result = ScenarioResult(
-                scenario_id=scenario.id,
-                passed=passed,
-                duration_sec=duration,
-                steps_executed=steps_executed,
-                steps_passed=steps_passed,
-                steps_failed=steps_failed,
-                error=error,
-                failed_step_index=failed_step_index,
-                logs=self.logs,
-                screenshots=self.screenshots,
+            await asyncio.wait_for(
+                self._run_steps(scenario, progress),
+                timeout=scenario.timeout_sec,
             )
-
-            self._log(
-                f"Scenario finished: {'PASSED' if passed else 'FAILED'} "
-                f"({steps_passed}/{steps_executed} steps passed, {duration:.2f}s)"
-            )
-
-            return result
-
         except asyncio.TimeoutError:
-            duration = time.perf_counter() - start_time
-            error = f"Scenario timed out after {scenario.timeout_sec}s"
-            self._log(f"✗ {error}")
+            # The step that was in flight never finished: count it as failed
+            progress.failed += 1
+            message = f"Scenario timed out after {scenario.timeout_sec}s"
+            if progress.first_failed_index is None:
+                progress.first_failed_index = progress.executed
+            progress.error = message
+            self._log(f"✗ {message}")
 
-            return ScenarioResult(
-                scenario_id=scenario.id,
-                passed=False,
-                duration_sec=duration,
-                steps_executed=steps_executed,
-                steps_passed=steps_passed,
-                steps_failed=steps_failed + 1,
-                error=error,
-                failed_step_index=steps_executed,
-                logs=self.logs,
-                screenshots=self.screenshots,
-            )
+        passed = progress.failed == 0
+        duration = time.perf_counter() - start_time
+        self._log(
+            f"Scenario finished: {'PASSED' if passed else 'FAILED'} "
+            f"({progress.passed}/{progress.executed} steps passed, {duration:.2f}s)"
+        )
+
+        return ScenarioResult(
+            scenario_id=scenario.id,
+            passed=passed,
+            duration_sec=duration,
+            steps_executed=progress.executed,
+            steps_passed=progress.passed,
+            steps_failed=progress.failed,
+            error=progress.error,
+            failed_step_index=progress.first_failed_index,
+            logs=list(self.logs),
+            screenshots=list(self.screenshots),
+        )
+
+    async def _run_steps(self, scenario: Scenario, progress: _Progress) -> None:
+        """Execute steps in order, stopping at the first critical failure."""
+        for idx, step in enumerate(scenario.steps):
+            self._log(f"Step {idx + 1}/{len(scenario.steps)}: {step.action.value}")
+
+            try:
+                await self._execute_step(step, scenario)
+            except Exception as e:
+                # Any step error (including bot/network errors) is a step failure,
+                # not a crash that loses the rest of the result.
+                detail = (
+                    str(e)
+                    if isinstance(e, (ValidationError, ExecutionError))
+                    else f"{type(e).__name__}: {e}"
+                )
+                progress.executed += 1
+                progress.failed += 1
+                progress.record_failure(idx, detail)
+
+                if step.critical:
+                    self._log(f"  ✗ Step {idx + 1} FAILED (critical): {detail}")
+                    return
+                self._log(f"  ⚠ Step {idx + 1} FAILED (non-critical): {detail}")
+            else:
+                progress.executed += 1
+                progress.passed += 1
+                self._log(f"  ✓ Step {idx + 1} passed")
 
     async def _execute_step(self, step: Step, scenario: Scenario) -> None:
         """
@@ -261,6 +273,6 @@ class ScenarioExecutor:
 
         Verifies bot internal state (for testing purposes).
         """
-        # This is a placeholder for M6
-        # In real implementation, would check bot.state, bot.profile_data, etc.
-        self._log("  ✓ State verification (not implemented in M6)")
+        # Failing loudly: a stub that reported success would turn any scenario
+        # using verify_state into a false pass.
+        raise ExecutionError("verify_state is not implemented yet")

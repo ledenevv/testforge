@@ -1,11 +1,11 @@
 """Post-execution verification and assertions."""
 
 from testforge.verifier.scenario_verifier import (
-    AssertionError,
     ScenarioVerifier,
+    VerificationError,
 )
 
 __all__ = [
     "ScenarioVerifier",
-    "AssertionError",
+    "VerificationError",
 ]
