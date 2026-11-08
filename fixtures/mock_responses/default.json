@@ -1,0 +1,9 @@
+{
+  "trigger": {
+    "fallback": true
+  },
+  "response": {
+    "text": "Извините, я не понял команду. Используйте /help для справки.",
+    "delay_sec": 0.3
+  }
+}

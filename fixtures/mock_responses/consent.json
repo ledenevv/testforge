@@ -1,0 +1,9 @@
+{
+  "trigger": {
+    "command": "/consent"
+  },
+  "response": {
+    "text": "Спасибо! Теперь заполним профиль.\n\nУкажите ваш пол (m/f/other):",
+    "delay_sec": 0.3
+  }
+}
