@@ -51,10 +51,10 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 - **interpretation.schema** is accepted but not checked. No schema registry yet.
 - **Compliance on mixed replies.** A step that reads several replies at once (for example, upload confirmation plus interpretation) captures all of them, so the compliance and schema checks see the confirmation too. Keep the interpretation in its own step in M9b-5 scenarios.
 
-## Blocker for real mode (found at M9b-6)
+## Real mode transport (found at M9b-6, decided at M8b-1)
 
-- **The Bot API cannot run a conversation with ask-toby.** Bots receive only messages sent to them, never their own replies, and never other bots' messages. `RealTelegramBot.send_message` speaks as the bot, so a real run would send `/start` as the bot to the test user instead of as the user to ask-toby. A real run through the current client would test nothing about ask-toby's answers. Mock mode is not affected.
-- **Owner decision needed (ADR-006):** A) an MTProto client (Telethon) logged in as a dedicated test account, recommended; B) an MTProto bot account with Bot-to-Bot Communication Mode enabled on both bots (needs the ask-toby team to enable it). Both need new secrets and a new dependency. Do not run real mode until the choice is made.
+- **The Bot API cannot run a conversation with ask-toby.** Bots receive only messages sent to them, never their own replies, and never other bots' messages. `RealTelegramBot.send_message` speaks as the bot, so a Bot API run would test nothing about ask-toby's answers. Mock mode is not affected.
+- **Decided (ADR-006, option A):** a dedicated test account logs in over MTProto with Telethon. Built in M8b-1 (`src/testforge/telegram/user_bot.py`). A real run still needs the owner's credentials and the executor work in M8b-2 (`_bmad-output/m8b-real-client.md`).
 
 ## Open items from M9b-5
 
@@ -71,6 +71,17 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 - Ruff format: 27 files at M9b-4 are not formatted. M9b-5 formats only the files it creates.
 - mypy `--strict` on `src`: 30 errors at M9b-4. Not part of any CI yet.
 - Before M9b-5, lint and mypy were never run per milestone. Add them to CI only after this pass.
+
+## Open items from M8b-1
+
+- **The executor does not wait for replies yet.** It reads them once after `delay_sec`. Real mode needs waiting until the expectation matches or `expect.timeout_sec` expires (M8b-2).
+- **Config still asks for `TESTFORGE_BOT_TOKEN` in real mode.** `config/examples/staging-bot.yaml` still lists `token` and `test_user_id`. Align with the `TESTFORGE_TG_*` settings in M8b-2.
+- **`RealTelegramBot` is still in the code.** Remove it, or keep it only for `getMe` checks (M8b-2).
+- **`start()` is not called anywhere yet.** The executor or the CLI must connect before a real run (M8b-2, M11).
+- **Edited messages from the bot are not read.** If ask-toby sends a placeholder and then edits it into the answer, only the placeholder arrives. Check on the first real run (M8b-3).
+- **FloodWait and session expiry are not handled.** A revoked session makes `start()` fail with the "not authorized" message: run `scripts/telegram_login.py` again.
+- **The login script has not been run.** It waits for the owner's test account and API credentials.
+- **Replies are not checked against ask-toby.** Format, sections, the `/analyze` trigger (M9b-5) and the time a full answer takes are assumptions until the first real run.
 
 ## Open items from M9b-6
 

@@ -22,8 +22,8 @@ class RealTelegramBot:
     """
     Real Telegram bot client using Bot API.
 
-    Sends messages and documents to actual Telegram bot,
-    polls for updates from real users.
+    Not used for conversations with the bot: the Bot API does not deliver the bot's
+    replies or messages from other bots (ADR-006). Real-mode runs use TelegramUserBot.
     """
 
     def __init__(

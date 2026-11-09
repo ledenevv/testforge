@@ -137,11 +137,12 @@ testforge run --scenario single_upload.yml --mode mock
 
 ### Real Mode
 
-Tests against deployed ask-toby bot via Telegram Bot API.
+Tests against the staging ask-toby bot. TestForge sends messages from a dedicated Telegram test account over MTProto (ADR-006), because the Bot API cannot carry a conversation with a bot.
 
 **Requires:**
-- `TESTFORGE_BOT_TOKEN` (staging bot token)
-- `TESTFORGE_TEST_USER_ID` (your Telegram ID)
+- `TESTFORGE_TG_API_ID` and `TESTFORGE_TG_API_HASH` (from https://my.telegram.org)
+- `TESTFORGE_TG_SESSION` (create once with `python scripts/telegram_login.py`)
+- `TESTFORGE_TG_BOT` (username of the staging bot)
 
 **Use for:**
 - E2E validation before production deploy
@@ -149,7 +150,10 @@ Tests against deployed ask-toby bot via Telegram Bot API.
 - Regression detection
 
 ```bash
-export TESTFORGE_BOT_TOKEN=<staging_token>
+export TESTFORGE_TG_API_ID=<api_id>
+export TESTFORGE_TG_API_HASH=<api_hash>
+export TESTFORGE_TG_SESSION=<session string>
+export TESTFORGE_TG_BOT=<staging bot username>
 export TESTFORGE_MODE=real
 testforge run --scenario single_upload.yml --mode real
 ```
