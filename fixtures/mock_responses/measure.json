@@ -1,0 +1,9 @@
+{
+  "trigger": {
+    "command": "/measure"
+  },
+  "response": {
+    "text": "Укажите давление в формате 120/80:",
+    "delay_sec": 0.3
+  }
+}

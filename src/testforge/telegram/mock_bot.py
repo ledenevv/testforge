@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Self
@@ -48,9 +49,13 @@ class MockTelegramBot:
         self.sent_messages: list[TelegramMessage] = []
         self.pending_responses: list[TelegramMessage] = []
 
-        # FSM state (for profile setup flow)
+        # FSM state (for profile setup and blood pressure flows)
         self.state: str = "idle"
         self.profile_data: dict[str, Any] = {}
+
+        # Uploads waiting for /analyze, and blood pressure readings taken
+        self.pending_documents: list[str] = []
+        self.measurements: list[dict[str, int]] = []
 
         # Load responses
         self.responses = self._load_responses()
@@ -258,27 +263,66 @@ class MockTelegramBot:
             await self._handle_profile_flow(message.text)
             return
 
+        # Special handling for the blood pressure flow
+        if self.state.startswith("measure_"):
+            await self._handle_measure_flow(message.text)
+            return
+
+        # /analyze turns everything uploaded so far into one interpretation
+        if message.text.strip().lower() == "/analyze":
+            await self._handle_analyze()
+            return
+
         # Handle /consent command (triggers profile flow)
         if message.text.lower() == "/consent":
             self.state = "profile_sex"
+
+        # Handle /measure command (triggers blood pressure flow)
+        if message.text.lower() == "/measure":
+            self.state = "measure_bp"
 
         # Find matching response (always returns something)
         response_data = self._match_response(message.text)
         await self._queue_response(response_data)
 
     async def _process_document(self, message: TelegramMessage) -> None:
-        """Process document upload and queue responses."""
-        # Queue "document received" response
+        """Acknowledge an upload. The interpretation waits for /analyze."""
+        document = message.document or {}
+        self.pending_documents.append(str(document.get("file_name", "document")))
         doc_response = self.responses.get("document_received")
         if doc_response:
             await self._queue_response(doc_response)
 
-        # Queue interpretation (simulated delay)
-        interpretation = self.responses.get("interpretation")
-        if interpretation:
-            # Simulate processing delay
-            await asyncio.sleep(0.5)
-            await self._queue_response(interpretation)
+    async def _handle_analyze(self) -> None:
+        """Answer /analyze with one interpretation covering every pending upload."""
+        if not self.pending_documents:
+            await self._queue_text_response("Сначала отправьте документ с анализами.")
+            return
+
+        batch = len(self.pending_documents) > 1
+        self.pending_documents = []
+        key = "interpretation_batch" if batch else "interpretation"
+        response = self.responses.get(key) or self.responses.get("interpretation")
+        if response:
+            await self._queue_response(response)
+
+    async def _handle_measure_flow(self, text: str) -> None:
+        """Blood pressure entry: accepts 'systolic/diastolic' and asks again otherwise."""
+        match = re.fullmatch(r"\s*(\d{2,3})\s*/\s*(\d{2,3})\s*", text)
+        if match is None:
+            await self._queue_text_response("Укажите давление в формате 120/80, например: 118/76.")
+            return
+
+        systolic, diastolic = int(match.group(1)), int(match.group(2))
+        if not (60 <= systolic <= 260 and 30 <= diastolic <= 160 and diastolic < systolic):
+            await self._queue_text_response(
+                f"Проверьте значение {systolic}/{diastolic}. Укажите давление в формате 120/80."
+            )
+            return
+
+        self.measurements.append({"systolic": systolic, "diastolic": diastolic})
+        self.state = "idle"
+        await self._queue_text_response(f"Записал: {systolic}/{diastolic} мм рт. ст. Спасибо!")
 
     async def _handle_profile_flow(self, text: str) -> None:
         """Handle profile setup flow (FSM)."""
@@ -401,6 +445,8 @@ class MockTelegramBot:
         self.pending_responses = []
         self.state = "idle"
         self.profile_data = {}
+        self.pending_documents = []
+        self.measurements = []
 
     async def close(self) -> None:
         """No-op; present so the mock is interchangeable with RealTelegramBot."""

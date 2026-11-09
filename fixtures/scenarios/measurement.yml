@@ -1,0 +1,29 @@
+id: measurement
+title: Запись артериального давления
+description: Команда /measure, неверный ввод, затем верный
+priority: P2
+tags: [measurement]
+
+steps:
+  - action: send_message
+    description: Команда /measure запрашивает давление
+    text: "/measure"
+    expect:
+      contains: "Укажите давление"
+
+  - action: send_message
+    description: Ответ не в формате, бот просит повторить
+    text: "абв"
+    expect:
+      contains: "Укажите давление"
+
+  - action: send_message
+    description: Верный ответ записывается
+    text: "120/80"
+    expect:
+      contains: "Записал: 120/80"
+
+timeout_sec: 30
+
+validation:
+  performance_budget_sec: 30

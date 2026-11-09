@@ -1,0 +1,23 @@
+document_id: lab_report_001
+fixture_file: fixtures/documents/lab_report_001_biochem_normal.pdf
+
+document_summary: >-
+  Биохимический анализ крови от 15.10.2026, вымышленный пациент. АЛТ 25 Ед/л (норма, до 41),
+  АСТ 22 Ед/л (норма, до 40), холестерин общий 4.9 ммоль/л (желательный уровень, до 5.2),
+  глюкоза 5.0 ммоль/л (норма, 3.9–6.1). Все показатели в пределах референсных значений.
+
+interpretation:
+  must_contain_sections:
+    - "Резюме"
+    - "Ключевые моменты"
+    - "Что обсудить с врачом"
+  must_not_contain_phrases:
+    - "назначаю"
+    - "рекомендую лечение"
+  disclaimer_pattern: "Это информационный разбор.*не заменяет консультацию врача"
+
+performance:
+  total_e2e_max_sec: 120
+
+llm_judge:
+  rubric: interpretation_quality_v1

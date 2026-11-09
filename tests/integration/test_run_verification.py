@@ -81,7 +81,8 @@ def _scenario(document, expectations, **validation):
         steps=[
             Step(action=ActionType.SEND_DOCUMENT, document_path=str(document)),
             Step(
-                action=ActionType.EXPECT_RESPONSE,
+                action=ActionType.SEND_MESSAGE,
+                text="/analyze",
                 expect=ExpectCondition(contains="Резюме"),
                 capture="interpretation",
             ),

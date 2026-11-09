@@ -72,10 +72,10 @@ class TestMockTelegramBot:
         await bot.send_document(pdf_file)
         updates = await bot.get_updates()
 
-        # Confirmation followed by interpretation
-        assert len(updates) == 2
-        assert "Документ получен" in updates[0].message.text or "Анализирую" in updates[0].message.text
-        assert "Резюме" in updates[1].message.text
+        # Only the acknowledgement; the interpretation waits for /analyze
+        assert len(updates) == 1
+        assert "Документ получен" in updates[0].message.text
+        assert "/analyze" in updates[0].message.text
 
     @pytest.mark.asyncio
     async def test_profile_flow(self, bot):

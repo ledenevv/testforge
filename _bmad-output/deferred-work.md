@@ -29,7 +29,7 @@
 - `TelegramMessage` has no `caption`, so a bot reply that is only a caption cannot be validated.
 - `ExpectCondition(contains="")` passes vacuously.
 - Validation error messages always end with `...` after a 100-character excerpt.
-- `fixtures/test_data/sample_lab_report.pdf` is a one-line fake and `test_multi_step_scenario` writes it into the working tree if missing. Replace with real synthetic PDFs (plan section 4).
+- ~~`fixtures/test_data/sample_lab_report.pdf` is a one-line fake and `test_multi_step_scenario` writes it into the working tree if missing. Replace with real synthetic PDFs (plan section 4).~~ Resolved in M9b-5: the fake is removed, the test no longer writes it, and five synthetic PDFs are in `fixtures/documents/`.
 
 ## Deferred from: code review (2026-11-08) - Chunk 4: LLM judge
 
@@ -51,6 +51,22 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 - **interpretation.schema** is accepted but not checked. No schema registry yet.
 - **Compliance on mixed replies.** A step that reads several replies at once (for example, upload confirmation plus interpretation) captures all of them, so the compliance and schema checks see the confirmation too. Keep the interpretation in its own step in M9b-5 scenarios.
 
+## Open items from M9b-5
+
+- **`/analyze` trigger is an assumption.** The mock answers with an interpretation only after `/analyze`; uploads are just acknowledged. The real ask-toby trigger is unknown. Check it before the first real-mode run. Three plan scenarios (`single_upload`, `batch_upload`, `conversation_qa`) and two regression fixtures (`document_upload`, `multi_step`) depend on it.
+- **Mock texts not checked against ask-toby.** Interpretations, the batch interpretation, the three Q&A answers and the blood pressure prompts are ours. Compare them when the repository is reachable (same blocker as the forbidden-phrase list).
+- **Live judge never called.** Tests use a stub judge with a fixed reply. The first live run (needs `TESTFORGE_LLM_API_KEY`) may show that the rubric needs calibration.
+- **Anthropic `temperature` is rejected by the SDK.** `anthropic` 2.6.0 has no `temperature` in `messages.create`, so `AnthropicProvider` raises `TypeError` on each judge call. Found by mypy (`providers/anthropic.py:68`) and checked against the installed SDK. Must be fixed before the first live judge run.
+- **Per-run budget not enforced.** `per_run_max_usd` is validated in the config, but nothing sums the scenarios of one run. The cost check covers one scenario. Needed for M11 runs with several scenarios.
+- **PDFs are not read by pytest.** They were checked by hand with pypdf. Regenerate with `uv run --no-project --with reportlab scripts/make_fixture_documents.py`.
+
+## Lint and type debt (found at M9b-5)
+
+- Ruff finds 207 issues in `src` and `tests` at M9b-4. 76 are RUF001: Russian text uses Cyrillic letters that look like Latin ones, so the rule flags most Russian strings. Recommended: ignore RUF001-RUF003 for this project, then fix the rest in one pass.
+- Ruff format: 27 files at M9b-4 are not formatted. M9b-5 formats only the files it creates.
+- mypy `--strict` on `src`: 30 errors at M9b-4. Not part of any CI yet.
+- Before M9b-5, lint and mypy were never run per milestone. Add them to CI only after this pass.
+
 ## Plan divergence found in review (M5-M7, M9) - accepted into M9b
 
 Decision: add milestone M9b before M10. Plan, decisions and acceptance criteria: `m9b-plan-conformance.md`. Rows below are closed as M9b items complete.
@@ -62,7 +78,7 @@ Review of Chunks 3 and 4 against `TESTFORGE_EXECUTION_PLAN.md` found that M5-M7 
 | M5 `Scenario` fields `title`, `validation`, `cost_budget`, `performance_budget` | M9b-1 done: `title`, `priority`, `validation` with `cost_budget_usd` and `performance_budget_sec` (both > 0) |
 | M5 step types `upload_document`, `wait_for_response`, `expect_pattern` | Implemented as `send_document`, `wait`, `expect_response` (+ `verify_state`, unimplemented) |
 | M5 fixture-exists and budget > 0 validation | M9b-1 done: `validate_scenario_files` (checks `document_path` and `validation.expectations`); budgets must be > 0. Not yet called by a CLI: that is M11 `plan` |
-| M5 five scenarios: onboarding, single_upload, batch_upload, conversation_qa, measurement | Not authored; fixtures are smoke_test, profile_setup, document_upload, multi_step, env_var_test |
+| M5 five scenarios: onboarding, single_upload, batch_upload, conversation_qa, measurement | M9b-5 done: the five are in `fixtures/scenarios/*.yml`, with budgets and PDFs. The older fixtures moved to `tests/fixtures/scenarios/` |
 | M6 `ExecutionTrace` (messages, responses, timings, cost per step) | M9b-2 done: per-step messages, replies, timings, pass/error. Cost per step not measured for the bot (owner decision) |
 | M6 trace saved to `/runs/<id>/trace.json` | M9b-2 done: `RunStore` writes `runs/run-…/trace.json` and `latest.txt` |
 | M7 schema validation (extract structured data, validate against expectations YAML) | M9b-3 done: required sections from expectations. No structured-data extraction: the interpretation is Markdown text |

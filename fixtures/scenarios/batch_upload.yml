@@ -1,0 +1,41 @@
+id: batch_upload
+title: Пакетная загрузка трёх анализов и один общий разбор
+description: Три документа, отправленные подряд, дают один разбор, учитывающий все три
+priority: P1
+tags: [interpretation, batch]
+
+steps:
+  - action: send_document
+    description: Биохимия крови
+    document_path: "fixtures/documents/lab_report_001_biochem_normal.pdf"
+    expect:
+      contains: "Документ получен"
+
+  - action: send_document
+    description: Общий анализ крови
+    document_path: "fixtures/documents/lab_report_002_cbc_anemia.pdf"
+    expect:
+      contains: "Документ получен"
+
+  - action: send_document
+    description: Гормоны щитовидной железы
+    document_path: "fixtures/documents/lab_report_003_thyroid_normal.pdf"
+    expect:
+      contains: "Документ получен"
+
+  - action: send_message
+    description: Один разбор на все три документа
+    text: "/analyze"
+    expect:
+      contains: "Резюме"
+      response_count: 1
+    capture: interpretation
+
+timeout_sec: 180
+
+validation:
+  expectations: fixtures/expectations/batch_001.yml
+  llm_judge: true
+  compliance: true
+  cost_budget_usd: 0.20
+  performance_budget_sec: 180

@@ -1,0 +1,53 @@
+id: onboarding
+title: Знакомство с ботом и заполнение профиля
+description: Пользователь запускает бота, соглашается с условиями и заполняет профиль
+priority: P0
+tags: [onboarding, smoke]
+
+steps:
+  - action: send_message
+    description: Команда /start показывает приветствие
+    text: "/start"
+    expect:
+      contains: "Этот бот анализирует"
+
+  - action: send_message
+    description: Согласие открывает заполнение профиля
+    text: "/consent"
+    expect:
+      contains: "профиль"
+
+  - action: send_message
+    description: Пол
+    text: "m"
+    expect:
+      contains: "год рождения"
+
+  - action: send_message
+    description: Год рождения
+    text: "1985"
+    expect:
+      contains: "рост"
+
+  - action: send_message
+    description: Рост
+    text: "180"
+    expect:
+      contains: "вес"
+
+  - action: send_message
+    description: Вес
+    text: "75"
+    expect:
+      contains: "заболевания"
+
+  - action: send_message
+    description: Хронические заболевания нет
+    text: "нет"
+    expect:
+      contains: "Профиль сохранён"
+
+timeout_sec: 60
+
+validation:
+  performance_budget_sec: 60

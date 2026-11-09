@@ -90,7 +90,7 @@ class TestScenarioLoader:
     @pytest.fixture
     def fixtures_dir(self):
         """Path to fixtures/scenarios directory."""
-        return Path("fixtures/scenarios")
+        return Path("tests/fixtures/scenarios")
 
     def test_load_profile_setup_scenario(self, fixtures_dir):
         """Load profile_setup.yaml scenario."""
@@ -118,7 +118,7 @@ class TestScenarioLoader:
         # Check document upload step
         upload_step = scenario.steps[0]
         assert upload_step.action == ActionType.SEND_DOCUMENT
-        assert "sample_lab_report.pdf" in upload_step.document_path
+        assert "lab_report_001_biochem_normal.pdf" in upload_step.document_path
 
     def test_load_smoke_test_scenario(self, fixtures_dir):
         """Load smoke_test.yaml scenario."""
@@ -297,7 +297,7 @@ class TestScenarioLoaderRobustness:
 
     @pytest.fixture
     def fixtures_dir(self):
-        return Path("fixtures/scenarios")
+        return Path("tests/fixtures/scenarios")
 
     def test_env_vars_substituted(self, monkeypatch, fixtures_dir):
         monkeypatch.setenv("TEST_USER_NAME", "alice")

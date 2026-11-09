@@ -32,7 +32,7 @@ class TestVerifierIntegration:
     @pytest.fixture
     def scenarios_dir(self):
         """Path to fixture scenarios."""
-        return Path("fixtures/scenarios")
+        return Path("tests/fixtures/scenarios")
 
     @pytest.mark.asyncio
     async def test_verify_smoke_test_scenario(

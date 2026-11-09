@@ -1,0 +1,70 @@
+id: single_upload
+title: Загрузка одного анализа и разбор
+description: Знакомство с ботом, загрузка биохимии крови и разбор с дисклеймером
+priority: P0
+tags: [smoke, interpretation, cost-critical]
+
+steps:
+  - action: send_message
+    description: Команда /start показывает приветствие
+    text: "/start"
+    expect:
+      contains: "Этот бот анализирует"
+
+  - action: send_message
+    description: Согласие открывает заполнение профиля
+    text: "/consent"
+    expect:
+      contains: "профиль"
+
+  - action: send_message
+    description: Пол
+    text: "m"
+    expect:
+      contains: "год рождения"
+
+  - action: send_message
+    description: Год рождения
+    text: "1985"
+    expect:
+      contains: "рост"
+
+  - action: send_message
+    description: Рост
+    text: "180"
+    expect:
+      contains: "вес"
+
+  - action: send_message
+    description: Вес
+    text: "75"
+    expect:
+      contains: "заболевания"
+
+  - action: send_message
+    description: Хронические заболевания нет
+    text: "нет"
+    expect:
+      contains: "Профиль сохранён"
+
+  - action: send_document
+    description: Загрузка биохимии крови
+    document_path: "fixtures/documents/lab_report_001_biochem_normal.pdf"
+    expect:
+      contains: "Документ получен"
+
+  - action: send_message
+    description: Запрос разбора загруженного документа
+    text: "/analyze"
+    expect:
+      contains: "Резюме"
+    capture: interpretation
+
+timeout_sec: 120
+
+validation:
+  expectations: fixtures/expectations/lab_report_001.yml
+  llm_judge: true
+  compliance: true
+  cost_budget_usd: 0.20
+  performance_budget_sec: 120

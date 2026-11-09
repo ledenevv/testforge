@@ -25,7 +25,7 @@ class TestScenarioExecutor:
     @pytest.fixture
     def scenarios_dir(self):
         """Path to fixture scenarios."""
-        return Path("fixtures/scenarios")
+        return Path("tests/fixtures/scenarios")
 
     @pytest.mark.asyncio
     async def test_smoke_test_scenario(self, executor, scenarios_dir):
@@ -58,12 +58,6 @@ class TestScenarioExecutor:
         """Run multi_step scenario (full E2E flow)."""
         scenario = load_scenario(scenarios_dir / "multi_step.yaml")
 
-        # Create test document if it doesn't exist
-        test_doc = Path("fixtures/test_data/sample_lab_report.pdf")
-        test_doc.parent.mkdir(parents=True, exist_ok=True)
-        if not test_doc.exists():
-            test_doc.write_text("Fake PDF content for testing")
-
         result = await executor.run(scenario)
 
         assert result.scenario_id == "multi_step"
@@ -95,11 +89,12 @@ class TestScenarioExecutor:
         doc.write_text("x")
         scenario = Scenario(
             id="test_consume",
-            description="Upload yields two updates; the first check takes both",
+            description="Upload acknowledged; /analyze then consumes acknowledgement and interpretation",
             steps=[
                 Step(action=ActionType.SEND_DOCUMENT, document_path=str(doc)),
                 Step(
-                    action=ActionType.EXPECT_RESPONSE,
+                    action=ActionType.SEND_MESSAGE,
+                    text="/analyze",
                     expect=ExpectCondition(response_count=2),
                 ),
                 Step(

@@ -10,7 +10,7 @@ from testforge.reporting import LLMCall, RunStore
 from testforge.scenarios import ActionType, ExpectCondition, Scenario, Step, load_scenario
 from testforge.telegram import MockTelegramBot
 
-SMOKE = "fixtures/scenarios/smoke_test.yaml"
+SMOKE = "tests/fixtures/scenarios/smoke_test.yaml"
 SAVED_AT = datetime(2026, 11, 8, 15, 30, 22)
 
 
@@ -182,7 +182,8 @@ class TestCapture:
             steps=[
                 Step(action=ActionType.SEND_DOCUMENT, document_path=str(document)),
                 Step(
-                    action=ActionType.EXPECT_RESPONSE,
+                    action=ActionType.SEND_MESSAGE,
+                    text="/analyze",
                     expect=ExpectCondition(contains="Резюме"),
                     capture="interpretation",
                 ),

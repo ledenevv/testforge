@@ -1,0 +1,39 @@
+scenario:
+  id: document_upload
+  description: Upload lab report PDF and receive interpretation
+  tags:
+    - document
+    - analysis
+    - core
+  mode: mock
+
+  variables:
+    test_doc_path: "fixtures/documents/lab_report_001_biochem_normal.pdf"
+
+  steps:
+    - action: send_document
+      description: Upload lab report PDF
+      document_path: "{{ test_doc_path }}"
+      caption: "Мои анализы крови"
+      expect:
+        contains: "Документ получен"
+
+    - action: wait
+      description: Wait for bot to process document
+      duration_sec: 0.5
+
+    - action: send_message
+      description: Ask for the interpretation of the upload
+      text: "/analyze"
+      expect:
+        contains: "Резюме"
+        response_count: 1
+      capture: interpretation
+
+    - action: expect_response
+      description: Nothing else arrives afterwards
+      expect:
+        response_count: 0
+
+  timeout_sec: 60
+  retry_on_failure: false
