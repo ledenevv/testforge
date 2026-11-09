@@ -56,7 +56,6 @@ class AnthropicProvider(LLMProvider):
             raise ValueError("Prompt cannot be empty or whitespace-only")
 
         max_tokens = max_tokens or self.config.max_tokens
-        temperature = temperature if temperature is not None else self.config.temperature
         timeout_sec = timeout_sec or self.config.timeout_sec
         retries = self.config.retries
 
@@ -64,11 +63,11 @@ class AnthropicProvider(LLMProvider):
         for attempt in range(retries + 1):
             try:
                 with self._measure_time() as timer:
+                    # temperature is not sent: SDK 1.0+ removed it (deferred-work.md)
                     response = await asyncio.wait_for(
                         self.client.messages.create(
                             model=self.config.model,
                             max_tokens=max_tokens,
-                            temperature=temperature,
                             messages=[{"role": "user", "content": prompt}],
                         ),
                         timeout=timeout_sec,

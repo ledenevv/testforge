@@ -1,6 +1,10 @@
 """Unit tests for LLM providers."""
 
+import inspect
+from types import SimpleNamespace
+
 import pytest
+from anthropic.resources.messages import AsyncMessages
 
 from testforge.config import LLMConfig
 from testforge.providers import (
@@ -275,6 +279,31 @@ class TestAnthropicProvider:
     # - Verify hung requests timeout after timeout_sec
     # - Verify final error is raised after exhausting retries
     # These tests require monkeypatching asyncio.sleep and mocking the Anthropic client
+
+    @pytest.mark.asyncio
+    async def test_request_arguments_are_accepted_by_the_sdk(self, config):
+        """Every argument sent to messages.create() must exist in the installed SDK.
+
+        Regression: SDK 1.0+ removed temperature, so passing it raised TypeError.
+        """
+        sent: dict = {}
+
+        async def create(**kwargs):
+            sent.update(kwargs)
+            return SimpleNamespace(
+                id="msg_test",
+                stop_reason="end_turn",
+                content=[SimpleNamespace(text="Ответ")],
+                usage=SimpleNamespace(input_tokens=10, output_tokens=2),
+            )
+
+        provider = AnthropicProvider(config)
+        provider.client = SimpleNamespace(messages=SimpleNamespace(create=create))
+
+        result = await provider.complete("Опиши анализ")
+
+        assert result.text == "Ответ"
+        inspect.signature(AsyncMessages.create).bind_partial(None, **sent)
 
 
 class TestOpenAIProvider:
