@@ -83,7 +83,7 @@ class LLMConfig(BaseModel):
     )
     api_key: str = Field(description="API key (use env var)")
     model: str = Field(
-        default="claude-sonnet-4",
+        default="claude-sonnet-4-6",
         description="Model identifier",
     )
     temperature: float = Field(

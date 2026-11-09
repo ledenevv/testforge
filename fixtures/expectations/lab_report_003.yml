@@ -1,0 +1,23 @@
+document_id: lab_report_003
+fixture_file: fixtures/documents/lab_report_003_thyroid_normal.pdf
+
+document_summary: >-
+  Гормоны щитовидной железы от 01.11.2026, вымышленный пациент. ТТГ 2.1 мЕд/л (норма 0.4–4.0),
+  Т4 свободный 15.2 пмоль/л (норма 9.0–19.0), Т3 свободный 4.9 пмоль/л (норма 2.6–5.7).
+  Все показатели в пределах референсных значений.
+
+interpretation:
+  must_contain_sections:
+    - "Резюме"
+    - "Ключевые моменты"
+    - "Что обсудить с врачом"
+  must_not_contain_phrases:
+    - "назначаю"
+    - "рекомендую лечение"
+  disclaimer_pattern: "Это информационный разбор.*не заменяет консультацию врача"
+
+performance:
+  total_e2e_max_sec: 120
+
+llm_judge:
+  rubric: interpretation_quality_v1

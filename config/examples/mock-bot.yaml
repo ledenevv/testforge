@@ -11,7 +11,7 @@ bot:
 llm:
   provider: anthropic
   api_key: "${TESTFORGE_LLM_API_KEY}"
-  model: claude-sonnet-4
+  model: claude-sonnet-4-6
   temperature: 0.3
   max_tokens: 4096
   timeout_sec: 30

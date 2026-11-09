@@ -19,7 +19,7 @@
 
 ## Deferred from: code review (2026-11-08) - Chunk 3: Scenarios, Executor, Verifier
 
-- **Real-bot polling.** Every step handler calls `bot.get_updates()` once after an optional `delay_sec`. With `RealTelegramBot` the first long-poll may return only the acknowledgement and miss the interpretation. The plan (M6) asks for polling until a pattern matches or a timeout expires. That needs a per-expectation timeout (`ExpectCondition.timeout_sec`) and a staging bot to validate against. Do it together with first real-mode runs.
+- **Real-bot polling.** Every step handler calls `bot.get_updates()` once after an optional `delay_sec`. With `RealTelegramBot` the first long-poll may return only the acknowledgement and miss the interpretation. The plan (M6) asks for polling until a pattern matches or a timeout expires. That needs a per-expectation timeout (`ExpectCondition.timeout_sec`) and a staging bot to validate against. Blocked by the transport decision in ADR-006: the Bot API cannot read the bot's replies, so polling it would not help. Do it after that decision, together with the first real-mode run.
 - `Scenario.retry_on_failure` / `max_retries` are parsed but not applied by the executor (descriptions now say "Reserved").
 - `Scenario.mode` is informational; the executor runs against whichever bot it is given. Bot selection belongs to the CLI (M11).
 - Per-action required fields (`send_message` needs `text`, `wait` needs `duration_sec > 0`) are enforced only when the step runs, not when the scenario loads.
@@ -51,6 +51,11 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 - **interpretation.schema** is accepted but not checked. No schema registry yet.
 - **Compliance on mixed replies.** A step that reads several replies at once (for example, upload confirmation plus interpretation) captures all of them, so the compliance and schema checks see the confirmation too. Keep the interpretation in its own step in M9b-5 scenarios.
 
+## Blocker for real mode (found at M9b-6)
+
+- **The Bot API cannot run a conversation with ask-toby.** Bots receive only messages sent to them, never their own replies, and never other bots' messages. `RealTelegramBot.send_message` speaks as the bot, so a real run would send `/start` as the bot to the test user instead of as the user to ask-toby. A real run through the current client would test nothing about ask-toby's answers. Mock mode is not affected.
+- **Owner decision needed (ADR-006):** A) an MTProto client (Telethon) logged in as a dedicated test account, recommended; B) an MTProto bot account with Bot-to-Bot Communication Mode enabled on both bots (needs the ask-toby team to enable it). Both need new secrets and a new dependency. Do not run real mode until the choice is made.
+
 ## Open items from M9b-5
 
 - **`/analyze` trigger is an assumption.** The mock answers with an interpretation only after `/analyze`; uploads are just acknowledged. The real ask-toby trigger is unknown. Check it before the first real-mode run. Three plan scenarios (`single_upload`, `batch_upload`, `conversation_qa`) and two regression fixtures (`document_upload`, `multi_step`) depend on it.
@@ -66,6 +71,12 @@ Decided 2026-11-08: TestForge does not check the cost of the ask-toby bot's own 
 - Ruff format: 27 files at M9b-4 are not formatted. M9b-5 formats only the files it creates.
 - mypy `--strict` on `src`: 30 errors at M9b-4. Not part of any CI yet.
 - Before M9b-5, lint and mypy were never run per milestone. Add them to CI only after this pass.
+
+## Open items from M9b-6
+
+- **ADR-006 is proposed, not accepted.** Owner choice needed (see the blocker above).
+- **Expectations 002–005 have no mock interpretation.** They describe a correct answer, so they can be run only against real replies or once per-document mock replies exist. Until then they are checked for loading and coverage only (`tests/unit/test_expectations_files.py`).
+- **Judge model `claude-sonnet-4-6` is not checked against the live API.** The first live run shows it: a 404 means the ID is wrong. Change `llm.model` in the config.
 
 ## Plan divergence found in review (M5-M7, M9) - accepted into M9b
 

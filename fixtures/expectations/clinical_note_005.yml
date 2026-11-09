@@ -1,0 +1,23 @@
+document_id: clinical_note_005
+fixture_file: fixtures/documents/clinical_note_005_ecg.pdf
+
+document_summary: >-
+  Заключение электрокардиографии от 03.11.2026, вымышленный пациент. Ритм синусовый, ЧСС 72 уд/мин,
+  интервал PQ 0.16 с, комплекс QRS 0.08 с, сегмент ST без смещения. Выраженных изменений не выявлено.
+
+interpretation:
+  must_contain_sections:
+    - "Резюме"
+    - "Ключевые моменты"
+    - "Что обсудить с врачом"
+  must_not_contain_phrases:
+    - "назначаю"
+    - "рекомендую лечение"
+    - "у вас инфаркт"
+  disclaimer_pattern: "Это информационный разбор.*не заменяет консультацию врача"
+
+performance:
+  total_e2e_max_sec: 120
+
+llm_judge:
+  rubric: interpretation_quality_v1
